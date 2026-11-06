@@ -1,0 +1,27 @@
+# API keys must never be committed
+.secrets/
+*.env
+# created by baseline.ipynb, not part of the distributed package
+baseline_output/
+# Python bytecode cache
+__pycache__/
+# optional virtual environment (README section 7.1)
+.venv/
+# Data files must not be published (README section 9)
+data/
+# Other stuff
+.DS_Store
+# Restricted data copied outside data/
+spot_nordpool.csv
+actuals_validation.csv
+actuals_test.csv
+
+# Starter archives contain restricted data
+starter_package*.zip
+
+# Additional secret-file names
+.env.*
+!.env.example
+
+# Notebook checkpoint copies
+.ipynb_checkpoints/
