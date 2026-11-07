@@ -13,28 +13,62 @@ there is no root `REVIEW.md` in this checkout.
 
 ## Scope and research basis
 
-Develop a competing model early, then run bounded experiments with the supplied data.
-Priorities are reusable as-of features, horizon-aware gradient-boosted trees, direct
-versus spot-relative targets, probabilistic outputs, chronological evaluation and
-measured performance improvements. Preserve persistence as the working reference and
-explicit fallback. External data, deep learning, LLM features and advanced ensembles
-are optional later proposals, outside these six steps.
+Build the intended final architecture incrementally: one shared as-of feature
+pipeline; pooled LightGBM heads for P50, P10/P90, direction and exceptional-price
+probabilities; common direct/spot-relative target handling; chronological calibration;
+and model-derived attribution. Step 2 produces every required numerical output.
+Subsequent steps improve these same components rather than replacing temporary models.
+Persistence remains the reference and explicit fallback.
 
-The existing engine plan records the team's research direction as histogram gradient
-boosting and spot-relative prediction, and explicitly requests horizon-aware features
-and comparison on all four official numerical metrics. The resolved Wayfinder tickets
-establish leakage, contract and reproducibility constraints. No separate model-research
-report was found in the current checkout; do not attribute experiments or results to
-one. These recorded ideas remain hypotheses, not evidence of improved accuracy.
+LightGBM is the proposed primary framework from the start, not a claim of superiority
+on our data. No planned migration to Transformers, LLMs or other speculative
+architectures is included. Reconsider architecture only if future measured evidence
+justifies a separate proposal. Do not implement an LLM or narrative generator inside
+the engine. Expert-facing conclusions and operational suggestions belong to the
+application workflow if separately authorized.
 
-For a first implementation, propose scikit-learn histogram gradient boosting rather
-than several competing libraries. Its documented regressor supports quantile loss and
-missing numeric values; the exact compatible version must be checked before approval.
-Disable automatic early stopping initially and use explicit chronological selection.
-See the [official estimator documentation](https://scikit-learn.org/stable/modules/generated/sklearn.ensemble.HistGradientBoostingRegressor.html).
-This is a proposed dependency, not a selection already installed or approved. If the
-dependency cannot be approved/provisioned, retain persistence and finish independent
-feature/evaluation work; do not implement a custom tree learner to bypass the gate.
+The earlier engine plan records histogram boosting and spot-relative targets as team
+research directions; these remain hypotheses. No separate model-research report was
+found in this checkout. The revised direction supersedes this roadmap's earlier
+scikit-learn-first proposal and temporary residual-interval/probability-head sequence.
+The resolved Wayfinder safeguards and existing baseline evidence still apply.
+
+LightGBM documents quantile and multiclass objectives in its
+[parameter reference](https://lightgbm.readthedocs.io/en/stable/Parameters.html), and
+native feature contributions through
+[Booster.predict](https://lightgbm.readthedocs.io/en/stable/pythonapi/lightgbm.Booster.html#lightgbm.Booster.predict).
+Use the native Python Booster API with ordinary constant-leaf trees initially; no
+additional SHAP framework is required for the proposed native contribution path.
+Verify the supported objectives, contribution shapes and additive identities against
+an approved pinned version during implementation. No version is selected or installed
+by this plan. If installation is not approved or available, continue independent
+feature/evaluation work and retain persistence; do not build a substitute learner.
+
+## Permanent component design
+
+- `features/`: one historical/inference implementation with stable ordered definitions,
+  availability lineage, missingness policy and market-category metadata. Feature groups
+  are configurable; design coverage of supplied data early without enabling everything.
+- `models/lightgbm.py` and `models/heads.py`: a concrete `LightGBMPredictor` and private
+  fitted implementation using the existing protocols. Five pooled boosters initially:
+  three price quantiles and two three-class classifiers. A small immutable recipe
+  controls each head's feature subset, target mode and parameters; no model registry
+  framework or speculative class hierarchy.
+- `models/targets.py`: direct price versus imbalance-minus-spot label construction and
+  reconstruction. Classifier label meanings do not change with the price target mode.
+- `models/calibration.py`: optional fitted transformations, identity initially, trained
+  only on eligible chronological out-of-fold evidence when enabled in Step 5.
+- `explainability/`: feature/category contributions and explicit transformation records,
+  linked to origin, delivery, head, class and recipe. Private records stay separate
+  from the unchanged `ForecastResult`; only approved categorical identifiers enter
+  the existing `top_drivers` field. Rich application access is a future proposal.
+- `experiments/`: explicit, reproducible fit/predict/export/official-tool orchestration
+  and an engine-local guide. Keep existing CLI defaults and signatures unchanged.
+
+Inference order is features → selected heads → price reconstruction → enabled
+calibration → documented output constraints → attribution summary. Attribution must
+track this chain rather than assume raw-head contributions explain every final value.
+Fit/preprocessing/calibration are frozen; attribution is read-only inference work.
 
 ## Fixed constraints for every step
 
@@ -56,14 +90,15 @@ feature/evaluation work; do not implement a custom tree learner to bypass the ga
   caller data, and verify that prediction does not mutate learned state.
 - Every origin returns all 40 quarter-hours through public `forecast(...)`. Preserve
   UTC-aware timestamps, negative prices, ordered quantiles and valid probabilities.
-  Keep optional output fields blank initially; no invented drivers or explanations.
+  Keep optional fields blank until supported. Step 3 populates `top_drivers` only from
+  verified model contributions; no invented drivers or explanations.
 - The application imports the engine directly. Compatibility means the same
   `fit(data, config=...)` and `forecast(fitted, data, origins=...)` calls and result
   access work for both models. No backend/frontend edits are included here. Choosing
   the improved predictor in application startup is separately coordinated work, even
   when its contract is unchanged.
 - Keep package import free of data loading, training, file writes and heavy optional
-  ML imports. Persistence must remain usable without the optional ML dependency.
+  LightGBM imports. Persistence must remain usable without LightGBM installed.
 - Never publish source data, spot prices, training matrices, residual targets, fitted
   objects or verbose diagnostics containing restricted values. Store any authorized
   run outputs privately under already ignored `baseline_output/engine/`; tracked tests
@@ -98,12 +133,18 @@ from roadmap approval, a review verdict or an installed library's availability.
 Dependency installation or updating a shared environment requires a notice even if a
 proposed dependency manifest would live inside the engine directory.
 
-Foreseeable coordination: optional ML installation/version recording; any later change
-to root packaging/requirements, external tests or shared guides; application model
+Foreseeable coordination: LightGBM installation/version recording and any native
+runtime prerequisite; any later change to root packaging/requirements, external tests
+or shared guides; application model
 selection; and any request for new public interfaces. All need separate approval.
 Adding private engine modules and package-local tests does not require editing those
 files. Runtime artifacts in existing ignored output storage are part of a separately
 authorized experiment, not permission to change outside source files.
+
+New explanation accessors or result/provenance fields count as public integration
+changes even if their source files would lie inside the engine directory. They require
+a notice and approval before implementation. Existing `top_drivers` population does
+not change the CSV contract, but application display/allowlist changes are separate.
 
 At every step completion report exactly the applicable status: **Cross-boundary
 changes: None**, or a **CROSS-BOUNDARY CHANGE NOTICE** using the fields above. Also
@@ -158,267 +199,455 @@ There is no known best-team score, so do not invent competition points or compre
 the metrics into an arbitrary official-looking score. Keep persistence if no candidate
 passes. A technically complete experiment may finish with no model promoted.
 
-## Step 1. Build reusable as-of features and an evaluation harness
+## Step 1. Establish permanent features and evaluation foundations
 
-**Objective and implementation:** Establish a minimal shared feature builder for
-historical training examples and inference. Use one row per origin/step with explicit
-horizon and delivery-calendar values, latest available imbalance/direction observations,
-their ages and a small number of past-only rolling summaries. Compute windows from
-eligible timestamped rows; unavailable requested lags remain missing. Record feature
-order, missingness policy and exact evidence. Calendar values are known in advance.
-Keep all optional supplied series out until controlled experiments justify them.
+Split this milestone into three sequential, independently reviewed substeps. Authorize
+and implement one substep at a time; after each, explain what now works, report actual
+checks, provide a review handoff and stop for explicit authorization. Approval of 1A
+does not authorize 1B or 1C. Step 1 is complete only after all three are accepted.
+All paths below are relative to `src/forecast_engine/`.
 
-Create a private experiment adapter alongside the existing unchanged CLI: it calls
-public engine APIs, exports forecasts, invokes unchanged official validator/scorer,
-and records safe run configuration, hashes and metrics. It must first reproduce a
-persistence validation run. Do not change the existing `run_workflow` signature or
-replace its default predictor. Add a small package-local command guide.
+### Step 1A. Define features and build as-of inference rows
 
-**Expected new files:** `features/{__init__,asof,training}.py`,
-`experiments/{__init__,run,README.md}`, `tests/{__init__,test_features,
-test_experiment_contract}.py`, all under `src/forecast_engine/`. Paths below use that
-same root. Prefer reuse of public availability/provenance/export functions.
+**Objective and implementation:** Build the shared as-of pipeline and feature registry
+for one row per origin/step. Define each feature's source dependencies, timestamp/window,
+unit, missingness policy and attribution category. Categories use stable identifiers:
+`renewable_production`, `consumption`, `production`, `cross_border_flows`,
+`neighboring_markets`, `balancing_conditions`, `historical_prices`,
+`spot_price_conditions`, `calendar_horizon`. Assign each feature to one category so
+additive grouping does not double count; freeze registry order/version with the fit.
 
-**Verify:** Run new tests with
-`.venv/bin/python -m unittest discover -s src/forecast_engine/tests -t src -v` and the
-unchanged external suite with `.venv/bin/python -W error::FutureWarning -m unittest
-discover -s tests -v`. Test exact availability equality, delayed labels, horizon
-purging, DST, missing lags, published future deliveries and all transitive rolling
-dependencies. Perturb/remove unavailable rows and confirm features/evidence do not
-change; compare historical and inference feature construction for the same origin.
-Authorized real-data acceptance runs must reproduce official baseline metrics and
-counts without reading any test actuals.
+Design feature groups covering historical imbalance-price levels/behavior; published
+spot; mFRR prices, activations and direction; sparse aFRR prices; consumption/production;
+published load/wind/solar forecasts; measured cross-border flows, supplied FI–EE
+capacities and neighboring-market observations; calendar and horizon. Start with a
+manageable subset: horizon/calendar, available imbalance/direction lags and ages,
+past-only price summaries and published delivery spot where available. Other groups
+are optional configurations tested later, not mandatory inputs for an early predictor.
 
-**After this step:** A tested as-of feature path and repeatable model-neutral comparison
-workflow, with persistence still the only working predictor.
+Published future-delivery inputs are allowed; rolling measured features use eligible
+observations in their declared past windows. Missing lag values remain missing, sparse
+aFRR is not assumed zero, and derived signals need evidence for all dependencies.
+Build feature rows and lineage for supplied origins without constructing training
+labels or running experiments in this substep. Step 1B will reuse this same builder.
 
-**Acceptance criteria:** Historical features cannot see later publications; each label
-is independently eligible. Both suites pass and the harness matches persistence on
-all four official metrics. Run metadata contains no restricted values. No application,
-starter, external test or public-interface change is needed.
+**Expected new files (5):** `features/{__init__,registry,asof}.py` and
+`tests/{__init__,test_features}.py`. No training-example or experiment modules yet.
 
-**Anticipated cross-boundary changes:** None for these source files/tests. Generating
-private outputs requires explicit authorization for the corresponding run; no ML
-dependency is needed yet. A shared documentation update is optional and deferred.
+**Verify:** Run the package-local feature tests and unchanged external suite. Check
+registry definitions/categories/units, deterministic feature ordering, full 40-step
+feature rows, UTC/DST behavior, missing lags, publication equality, published future
+inputs and complete transitive evidence. Perturb/remove unavailable rows and confirm
+earlier features and lineage are unchanged. No full-data scoring run is required yet.
 
-## Step 2. Deliver a complete competing gradient-boosted predictor
+**After this substep / deliverables:** Feature definitions, category metadata and a
+tested as-of builder returning ordered feature rows with value-free dependency
+evidence. No training examples, fitted model or experiment harness yet.
 
-**Objective and implementation:** Once the optional dependency is approved and usable,
-add a horizon-aware pooled tree regressor with quantile-0.5 loss for direct imbalance
-price prediction. Horizon is a feature; do not begin with 40 separately tuned models.
-Use a fixed seed, small tree budget and disabled automatic/random early stopping.
-Reuse Step 1 features for both fitting and inference.
+**Acceptance criteria:** Feature availability, ordering and evidence checks pass;
+unpublished values cannot affect earlier rows. Both suites pass, with no restricted
+values in tracked fixtures/diagnostics and no changes to existing public interfaces.
 
-Return a full `ForecastResult` immediately. Initially take direction/spike probabilities
-from a once-fitted persistence component. Fit horizon-specific lower/upper residual
-offsets from chronological out-of-fold predictions inside the training interval;
-apply them around the ML median with an explicit ordered construction. Do not use
-in-sample residuals or official-validation errors for these offsets. Include residual
-labels, historical features, submodel fits and baseline components in fitting lineage.
-This is a hybrid candidate with disclosed baseline probability components.
+**Anticipated cross-boundary changes:** None. All new files stay inside the engine;
+no dependency installation or application work is needed.
 
-**Expected new files:** `models/{gradient_boosted,residual_intervals}.py`,
-`tests/{test_gradient_boosted,test_model_compatibility}.py`.
-Modify `experiments/run.py` and its local guide to select the candidate explicitly.
-Lazy-load the ML library; existing exports and default CLI stay unchanged.
+### Step 1B. Construct training examples and enforce label safeguards
 
-**Verify:** Test complete schema, finite predictions, ordered intervals, negative
-prices, exact UTC steps, provenance, single/batch agreement and repeatability. Snapshot
-learned state before/after prediction and guard fit calls. Run baseline and candidate
-through identical public caller code and a synthetic contract test; no application
-edits. Run the package/external suites and a real full-validation comparison through
-the unchanged official tools. Confirm persistence still imports/runs without ML.
+**Objective and implementation:** Reuse the accepted 1A builder for historical
+origin/step examples. Add independent eligibility masks for price, direction and paired
+imbalance/spot spike labels. Do not intersect all masks and silently discard usable
+labels for other heads. Enforce delivery intervals and publication cutoffs separately
+for each label and horizon; carry both feature and label evidence.
 
-**After this step:** A working competing ML model produces all required outputs through
-the existing application interface, regardless of whether it beats persistence.
+Construct the pre-validation expanding-window folds described above and purge labels
+crossing each fitting boundary. Keep feature selection at each historical origin,
+separate from label availability at fitting time. No model training, calibration or
+scoring harness is included in this substep.
 
-**Acceptance criteria:** Correctness/leakage/compatibility checks and official structural
-validation pass. All four metrics and compute costs are reported against baseline;
-unimproved results are recorded honestly and do not trigger promotion. Predictions
-never retrain or mutate the fitted estimator.
+**Expected new files (1):** `features/training.py`. Extend `tests/test_features.py`
+with historical-example and fold tests; modify existing feature modules only if
+needed for reuse, preserving the accepted as-of behavior.
 
-**Anticipated cross-boundary changes:** An ML dependency installation/version decision
-requires a notice and explicit approval before execution. Starter requirements and
-root packaging remain untouched unless separately approved. Application development
-can continue with persistence; switching its startup selection is separate work.
+**Verify:** Run both suites. Check delayed and partially available labels, exact cutoff
+boundaries, independent target masks, ten-hour horizon purging and missing paired spot
+labels. Compare historical features against direct 1A inference construction for the
+same origins. Changing future or otherwise ineligible labels must leave earlier
+eligible examples and fitting evidence unchanged. No full-data scoring run yet.
 
-## Step 3. Compare direct-price and spot-relative targets with feature ablations
+**After this substep / deliverables:** Tested historical training examples, per-head
+eligible labels and chronological fold construction using the permanent feature path.
+No predictor has been trained.
 
-**Objective and implementation:** Add a controlled target mode for
-`imbalance_price - spot_price`, and reconstruct prices using the delivery spot value
-available at the forecast origin. Train/evaluate direct and relative variants on
-matched folds and feature sets before expanding features. For relative labels both
-imbalance and spot must satisfy fitting delivery/publication eligibility. The historical
-spot offset used as an inference feature must additionally have been published at that
-historical origin; a fitting-time spot label is not automatically an available feature.
+**Acceptance criteria:** Every retained example has eligible feature/label lineage;
+historical/inference feature parity holds; fold boundaries exclude crossing or delayed
+labels. Both suites pass and independently usable labels are not silently lost.
 
-Specify the unavailable-spot policy before running: use the separately fitted direct
-model for that row, with its evidence, or fail clearly if no complete safe forecast is
-possible. Never substitute a future spot value. Compare common eligible rows and report
-availability/fallback rates alongside full-output metrics to avoid selection bias.
+**Anticipated cross-boundary changes:** None. Existing `RunConfig` and provenance
+contracts suffice; any discovered need to change them triggers the standing notice.
 
-Add a few supplied-data feature groups one at a time: published delivery load/wind/solar
-forecasts and ramps, eligible neighboring-area observations, then measured production,
-consumption, activated balancing volumes and cross-border flows. Derived differences
-need both dependencies available; sparse aFRR is missing, not automatically zero.
-Only claim forecast revisions if historical vintages actually exist; the supplied
-latest-version forecasts do not establish a revision history.
+### Step 1C. Build the experiment harness and reproduce persistence
 
-**Expected new files:** `models/targets.py`, `tests/test_targets.py`; modify
-`features/asof.py`, `features/training.py`, `models/gradient_boosted.py`, feature tests
-and the engine-local experiment guide/configuration.
+**Objective and implementation:** Build the private experiment adapter using public
+APIs, existing provenance utilities, export and unchanged official tools. Keep original
+`run_workflow` and CLI unchanged. Reuse 1B fold definitions. For pre-validation folds,
+construct scoring-only actuals from supplied eligible target series separately from
+features, using the official definitions, and retain them privately. Actuals for a
+fold are never inputs or training labels for that fold's fit.
 
-**Verify:** Test publication boundaries for future spot, missing spot, both label
-dependencies, price reconstruction and row-level fallback provenance. Ablate feature
-groups on chronological folds with fixed budgets and report all metrics, missingness,
-availability and runtime. Perturb unpublished spot and feature rows: fitted statistics
-and earlier predictions must remain unchanged. Keep restricted offsets and matrices
-out of logs/artifacts intended for sharing.
+Record configuration, source/input hashes, safe lineage summaries, counts, timing and
+all four metrics in a fresh ignored run directory. Document the engine-local command
+and failure diagnostics. Reproduce full persistence validation before accepting the
+foundation; no LightGBM model or dependency is required.
 
-**After this step:** Evidence establishes whether spot-relative prediction or any added
-feature group is worth retaining; the direct candidate remains available.
+**Expected new files (4):** `experiments/{__init__,run}.py`,
+`experiments/README.md` and `tests/test_experiment_contract.py`. Modify 1A/1B modules
+only for directly required integration fixes, with affected checks rerun.
 
-**Acceptance criteria:** An explicit results matrix compares target modes and small
-ablations on identical evaluation rows, with no unsupported improvement claim. The
-chosen mode emits complete valid horizons with documented missing-spot behavior.
-Selection follows predeclared rules rather than test-period observations.
+**Verify:** Run both suites and synthetic orchestration tests covering scoring-actual
+separation, safe failures, fresh output directories and official-tool invocation.
+Run full persistence validation through the unchanged validator/scorer. Compare all
+four metrics and row counts with the recorded baseline, retaining unlabelled tail
+forecasts. Check metadata and generated diagnostic outputs for restricted values.
 
-**Anticipated cross-boundary changes:** None expected; use the existing approved ML
-dependency. No spot-price endpoint or application change is proposed. Additional data
-sources, documentation outside the package or dependency changes require notices.
+**After this substep / deliverables:** A reproducible experiment command/guide and
+safe baseline acceptance evidence in ignored storage. Step 1's feature, training-example
+and evaluation foundation is complete; persistence is still the only fitted predictor.
 
-## Step 4. Learn quantiles, direction and spike probabilities
+**Acceptance criteria:** Both suites pass, persistence reproduces all four recorded
+metrics and scoring counts, and official structural validation passes. No test actuals
+are accessed and scoring data stays outside prediction inputs. The handoff identifies
+actual checks, engine revision, output locations and limitations.
 
-**Objective and implementation:** Replace baseline-derived components individually,
-retaining each only when tested. Fit p10/p50/p90 quantile regressors with the selected
-target/features; compare them to Step 2 residual intervals. Document deterministic
-quantile rearrangement if independent predictions cross, and evaluate its effect.
-Do not silently repair invalid values in generic engine validation.
+**Anticipated cross-boundary changes:** None for source files. Authorized runs use
+existing ignored storage. LightGBM provisioning remains a separate Step 2 prerequisite
+requiring a notice and explicit approval; application work can continue independently.
 
-Fit a three-class direction model and a three-class exceptional-price model
-(`high`, `low`, `neither`) using strict ±50 EUR/MWh spike labels. Derive the two spike
-probabilities from the joint three-class output to preserve their sum constraint.
-Select eligible direction labels separately from price/spot pairs; partial label
-availability must not leak or silently remove unrelated training tasks. Align classes
-explicitly. For absent/rare classes, use a documented eligible-data prior or retained
-baseline component with provenance, rather than invented probability estimates.
+### Step 1 verification commands
 
-**Expected new files:** `models/probabilistic.py`, `tests/test_probabilistic.py`;
-modify `models/gradient_boosted.py`, compatibility tests and the experiment adapter.
-Reuse the feature builder and existing contract; do not expand it for model heads.
+Run these from the repository root at each substep, reporting actual results. Full-data
+persistence acceptance is required in 1C, not repeated for each earlier checkpoint.
 
-**Verify:** Test strict spike boundaries, independent label eligibility, class order,
-missing classes, probability sums, quantile crossing and source lineage. Fit once,
-compare single/batch predictions and assert no inference state mutation. Run ablations
-for each new head on chronological folds, then a frozen candidate through official
-validation/scoring. Report all four metrics plus coverage by horizon.
+```bash
+.venv/bin/python -m unittest discover -s src/forecast_engine/tests -t src -v
+.venv/bin/python -W error::FutureWarning -m unittest discover -s tests -v
+```
 
-**After this step:** The candidate can learn every required output, with baseline or
-residual components retained where the learned alternative lacks evidence of value.
+The total planned new files remain approximately ten: five in 1A, one in 1B and four
+in 1C. Existing internal test files grow with their relevant checks. Each substep ends
+with its own review handoff and approval pause; no implementation is authorized here.
 
-**Acceptance criteria:** Complete valid outputs and both suites pass. Every head has
-traceable labels and availability. Retained components have measured benefit or an
-explicit fallback justification; fitting all learned heads is not itself a success
-claim. No probability-sum or quantile constraint is weakened.
+## Step 2. Deliver the complete LightGBM forecasting system
 
-**Anticipated cross-boundary changes:** None if the approved library supports the
-required heads. Any new library, public result field or application visualization
-request requires a notice and separate approval.
+**Objective and implementation:** After explicit dependency approval, implement
+`LightGBMPredictor.fit(data, config=...)` and a frozen fitted implementation returning
+`ForecastResult` through the unchanged `forecast(...)` call. Use the native Booster API,
+small fixed-seed CPU configurations and fixed training iterations initially. No random
+validation split, automatic tuning, GPU requirement or early-stopping dependency.
+Later early stopping must use an explicit earlier chronological assessment window.
 
-## Step 5. Calibrate and select a bounded final candidate
+Train five horizon-aware pooled boosters sharing Step 1 infrastructure: quantile
+objectives at 0.10, 0.50 and 0.90; one multiclass direction head with fixed class mapping
+up/down/none; and one multiclass spike head with high/low/neither. Spikes use strictly
+above spot + 50 or below spot − 50 EUR/MWh. Multiclass spike outputs supply the two
+reported probabilities, ensuring their sum cannot exceed one. Per-head eligibility,
+class mapping and evidence are explicit. Quantile-0.5 targets the median-price metric.
 
-**Objective and implementation:** Evaluate whether additional uncertainty/probability
-calibration improves official losses. Use chronologically held-out pre-validation
-predictions or expanding out-of-fold predictions, never in-sample scores. Within each
-assessment fold, calibrators must be fitted on earlier eligible predictions/outcomes
-and frozen before that fold begins. Final pre-validation calibrators may use eligible
-pre-validation out-of-fold evidence only.
+Implement both price target modes in the same `targets.py` path now. Start acceptance
+with direct price. Relative labels require paired fitting-eligible imbalance and spot;
+reconstruction requires delivery spot published by the inference origin. Fitting-time
+spot eligibility does not make that spot a valid historical feature. Before enabling
+relative inference, fit a direct-price backup using the same architecture for rows
+without usable delivery spot. Track which price path supplied each row. Never insert
+unpublished spot; compare full outputs and matched eligible subsets in Step 4.
 
-Compare no calibration with a small, justified option for quantile offsets and a
-joint probability calibration that preserves class sums. Pool horizons initially;
-use horizon groups only with sufficient evidence. Coverage alone is not an objective:
-widening an interval toward 80% can worsen pinball loss. Avoid broad hyperparameter
-search or unsupported guarantees about future calibration.
+Keep P50 unchanged when resolving crossing quantiles initially: lower is the minimum
+of raw reconstructed P10 and P50, upper the maximum of raw reconstructed P90 and P50.
+Record this policy, raw outputs and its effect in private evaluation; do not sort all
+three heads and inadvertently replace the median's identity. Calibration is identity
+until Step 5. This explicit model policy does not weaken generic engine validation.
 
-Freeze the feature/target/head/calibration recipe after the bounded experiments and
-evaluate it against persistence on the official validation interval. Record component
-choices, fold scores, all four metric deltas, coverage, rare-event support and known
-validation reuse. Do not automatically choose a different winner for every metric.
+All heads are learned from the start on adequate data. For insufficient eligible
+labels or absent classes, use an explicitly configured persistence component with
+complete fitting/inference evidence, or fail clearly. Missing dependency or unexpected
+training failures must not silently fall back. Do not use persistence as the planned
+normal implementation of probability/uncertainty heads. Optional text stays blank
+until Step 3. Retain head/target/recipe and transformation identity privately for
+attribution; no new public result field is introduced.
+
+**Expected new files:** `models/{lightgbm,heads,targets}.py`,
+`tests/{test_lightgbm,test_targets,test_model_compatibility}.py`. Modify the package-local
+experiment adapter/guide to select this predictor explicitly. Existing exports, baseline
+implementation, CLI defaults and public signatures remain unchanged.
+
+**Verify:** Unit tests cover every head, strict spike boundaries, partial/absent labels,
+class order, valid sums, negative prices, missing spot and backup lineage, reconstruction
+and crossing quantiles. Test single/batch equality, repeated prediction, detached caller
+data, fit-call guards and model-state fingerprints before/after prediction. Run both
+suites and full real-data validation/official scoring. Baseline and ML use identical
+public caller code; persistence must still import/run with LightGBM unavailable.
+
+**After this step / deliverables:** A complete end-to-end LightGBM forecast, all numerical
+outputs for 40 steps, direct/relative target support, safe configuration/lineage and
+an official validation comparison with timing and baseline metrics.
+
+**Acceptance criteria:** On adequate supplied data, all five learned heads execute;
+fallbacks are limited to declared evidence gaps and reported. Full forecasts pass
+unchanged validation and compatibility checks. Report all four scores and costs;
+no improvement is assumed and promotion is not required for technical completion.
+
+**Anticipated cross-boundary changes:** Issue a notice before LightGBM/version/native
+runtime installation or any shared environment/packaging change. Pin and document the
+approved setup in the engine-local guide; do not edit starter requirements or root
+packaging without approval. Application development can continue independently;
+application predictor selection remains separate coordinated work.
+
+## Step 3. Add model contributions and meaningful top_drivers
+
+**Objective and implementation:** Implement native `pred_contrib=True` attribution
+for the supported ordinary-tree heads, using the exact features, model iteration and
+class mapping used for prediction. This is prediction-specific model contribution,
+not global split/gain importance, a description of the algorithm, or physical causation.
+Verify native output layouts and additive identities for each approved objective;
+unsupported cases must report unavailable attribution, never guessed drivers.
+
+Private immutable records identify origin/delivery/step, head and class, model/recipe,
+target mode, registry version, explanation scope, reference/base output, signed
+feature/category contributions and units. Include the output being explained and a
+transformation ledger for reconstruction, calibration, constraint handling and fallback.
+Keep feature values and numeric references/contributions private because they can
+reveal restricted market information. Do not add records to `ForecastResult`, DataFrame
+attrs, provenance schemas or a new public explanation method. An engine-private helper
+can serve internal tests/experiments; an application interface requires a separate
+cross-boundary proposal.
+
+For a direct uncalibrated P50, test that base plus feature contributions reconstructs
+its raw prediction in EUR/MWh. For a relative P50, contributions explain the spread
+component; record the private spot reconstruction offset separately and associate it
+with `spot_price_conditions`. It is not a learned SHAP effect. Only claim a final-price
+decomposition when that offset and every other transformation are explicitly accounted
+for. Never serialize the offset or a reference/contribution that reveals spot values.
+
+Group feature contributions by signed sum using the registry, preserving additivity;
+retain individual contributions privately so within-category cancellation is visible.
+Populate `top_drivers` with at most three nonzero categories ranked by absolute grouped
+contribution, stable identifier order for ties, semicolon-separated and without numeric
+values. It explains P50 only. Document this definition in the engine-local guide and
+application handoff. Relative reconstruction can contribute its category to this
+ranking, explicitly distinguished privately from learned effects. Zero contributions
+or unsupported complete P50 explanations yield blank optional text; persistence
+fallback rows do not receive LightGBM drivers.
+
+Implement target-specific internal records for direction and spike classes where
+native outputs are verified. Their additive contributions explain raw class margins;
+record softmax/calibration separately. Do not call them probability-point changes or
+reuse P50 categories as explanations of those heads. The class, baseline and unit
+must always be explicit. Quantile attribution has the same transformation caveats.
+If calibration/blending later prevents a faithful final-output attribution, keep the
+raw-head scope explicit privately and leave affected final-P50 `top_drivers` blank
+until a valid decomposition is available.
+
+Allow internal comparison of contributions for the same delivery at consecutive
+origins under the same frozen model/registry, using genuinely generated forecasts.
+This can later support explanations of revisions, but is not evidence of revised
+upstream weather/day-ahead forecasts: the supplied latest-vintage data cannot provide
+that history. No revision endpoint or narrative generator is included.
+
+**Expected new files:** `explainability/{__init__,records,contributions,drivers}.py`,
+`tests/test_explainability.py`; modify candidate result assembly and local experiment
+guide. Reuse registry metadata; no public contract or application file changes.
+
+**Verify:** Test additive reconstruction with tolerances for price and each class raw
+margin, multiclass shapes/class order, units/signs, grouped sums/cancellation, stable
+ranking, zero effects and prediction-specific variation on synthetic models. Test
+relative reconstruction, fallback, quantile constraints and unsupported transformations.
+Perturb unavailable inputs and confirm predictions/drivers are unchanged. Privacy tests
+must prohibit raw spot values, offset values, feature values and numeric attributions
+in `top_drivers` or safe logs. Check output schema/export and official validator with
+populated optional text. Fingerprint fitted state through attribution calls.
+
+**After this step / deliverables:** Verified internal attribution records for supported
+heads and safe P50 category identifiers in the existing optional CSV column, with
+scope/units/transformation documentation and an application coordination handoff.
+
+**Acceptance criteria:** Explanations reconstruct exactly their stated target/scale
+within tolerance and distinguish final values from components. `top_drivers` is
+model-derived, deterministic and free of restricted values; unavailable/fallback
+explanations remain blank. No LLM, public explanation interface or causal claim.
+
+**Anticipated cross-boundary changes:** The current backend `schemas.py` approves only
+`last_imbalance_price`; new category names will be filtered to null until the application
+workflow approves its allowlist/docs/tests update. Propose that update rather than
+editing it. Existing predictor injection in `prepare_forecast` supports the contract.
+A richer explanation accessor/record schema or response endpoint needs a separate
+notice covering privacy, target/scale semantics, versioning and migration. Internal
+attribution and CSV development can proceed without that public interface.
+
+## Step 4. Improve the same architecture through controlled experiments
+
+**Objective and implementation:** Use a bounded hypothesis table covering direct versus
+relative targets, optional feature groups, regularization/tree/iteration settings,
+horizon interactions and head-specific feature sets. Start with no more than six
+recorded candidate recipes; expanding the budget requires justification and approval
+as additional experiment scope. Avoid a Cartesian search. Choose configurations on
+pre-validation expanding folds and report all four losses, coverage, availability,
+fallback rates, per-horizon results and compute/attribution costs.
+
+Test feature groups in small ablations: renewable/load forecasts and delivery ramps;
+balancing observations; production/consumption; then cross-border and neighboring
+markets. Both sides of every derived difference must be available. No undocumented
+vintages, future filling or automatic zero interpretation of sparse aFRR. Compare target
+modes both on shared eligible rows and complete horizons to expose missing-spot bias.
+Consider horizon groups only after pooled diagnostics show a repeatable weakness.
+
+Small same-family ensembles or regime-specific heads are optional follow-ups only
+when earlier results justify their extra cost. A regime selector itself must be
+as-of-safe. Preserve head/target identifiers and explain transformation/blend effects;
+do not assume a mixed model has a single native contribution decomposition. Do not
+speculatively build another architecture or require these options for completion.
+
+**Expected files:** Modify `models/{lightgbm,heads,targets}.py`, `features/` definitions,
+package-local experiment recipes/guide and associated internal tests. Extend private
+attribution handling for retained changes only. No new framework is expected.
+
+**Verify:** Run controlled fold comparisons with fixed seeds, data and matched score
+rows. Test label purging, per-head subsets, missingness, fallback and hypothesis-specific
+invariance. Re-run both suites after retained code changes and attribution identities
+for the selected mode. Apply the predeclared promotion rule; report discarded ideas
+as well as retained improvements in safe experiment summaries.
+
+**After this step / deliverables:** A measured configuration/feature comparison and
+selected candidate within the permanent LightGBM architecture, or evidence for retaining
+the initial recipe/persistence. No unsupported superiority claim.
+
+**Acceptance criteria:** Every retained change has reproducible chronological evidence
+and valid provenance/outputs. All four metrics/tradeoffs are visible. Test outcomes
+are not accessed; forecast explanations retain correct head and transformation scope.
+
+**Anticipated cross-boundary changes:** None required with approved dependencies.
+External data, another library, broader experiments or public fields require a notice
+and separate approval. Application code remains untouched.
+
+## Step 5. Calibrate and freeze the final complete configuration
+
+**Objective and implementation:** Add chronological quantile and probability calibration
+to the same fitted system. Compare identity against pooled P10/P90 residual-quantile
+offsets from earlier out-of-fold predictions, and scalar temperature calibration on
+each classifier's multiclass margins. Fit temperatures using eligible earlier labels;
+assess retention using official Brier losses. Maintain nonnegative normalized class
+probabilities and the spike sum constraint. Start with P50 unchanged so its contribution
+identity stays clear; any median correction is a separately evaluated configuration.
+
+Within each assessment fold, all calibrator inputs and outcomes must come from earlier
+eligible out-of-fold predictions, and calibrators freeze before the fold begins.
+Never use in-sample errors, random splits or official validation outcomes to calibrate
+the candidate evaluated on that interval. Final validation calibrators use only
+pre-validation evidence. With inadequate evidence, use identity rather than invented
+corrections. Coverage near 80% is diagnostic, not a replacement for pinball loss.
+
+Track each quantile adjustment, constraint and temperature in private attribution
+records with the correct scope/units. Raw classifier-margin contributions do not
+become calibrated probability contributions by relabelling them. If a retained blend
+or nonlinear transform cannot support a faithful final-P50 decomposition, clear its
+`top_drivers` and retain explicitly scoped internal component records. Calibration
+must not leave stale or misleading drivers on final outputs.
+
+Freeze the complete recipe—features, target modes, per-head parameters, fallbacks,
+calibrators and explanation policy—then run official chronological validation against
+persistence. Record validation reuse, all metric deltas, coverage and rare-event
+support. For final test refitting, rebuild training-only chronological calibration
+folds within the larger permitted training interval using the frozen procedure; do
+not carry validation leakage into earlier assessment predictions.
 
 **Expected new files:** `models/calibration.py`, `tests/test_calibration_ml.py`;
-modify candidate fitting, package-local experiment configuration and its guide.
+modify candidate fitting, internal attribution tests/records and experiment guide.
 
-**Verify:** Synthetic fold tests forbid calibration labels published after cutoff or
-delivered across it. Verify disjoint training/calibration/assessment use, finite valid
-outputs and frozen calibrators. Test that modifying held-out outcomes cannot change
-an earlier fit. Compare calibrated and uncalibrated scores through official tools on
-matching rows and report losses rather than coverage alone.
+**Verify:** Test disjoint chronological training/calibration/assessment use, publication
+cutoffs and horizon purging, deterministic temperatures/offsets and identity behavior.
+Change held-out/future outcomes and confirm earlier fits cannot change. Compare
+calibrated/uncalibrated pinball and both Brier criteria on identical rows, plus MAE
+and coverage. Verify sums, ordering, frozen state and attribution scope after transforms;
+run both suites and frozen full official validation.
 
-**After this step:** A documented candidate recipe is frozen for final verification,
-or persistence remains the recommended model if experiments do not justify promotion.
+**After this step / deliverables:** A frozen complete recipe, justified calibration
+choices and full validation comparison, with updated explanation semantics. Persistence
+remains the recommendation if no candidate meets the promotion rule.
 
-**Acceptance criteria:** Calibration is retained only under the recorded selection
-rule; every statistic has fitting evidence. The final comparison includes all metrics
-and limitations without using test labels or implying final competition points.
+**Acceptance criteria:** Retain only measured calibration benefits under predeclared
+tradeoff rules; no coverage-only optimization. Every calibrator has eligible source
+and model provenance. Final explanation claims match the actual transformed outputs;
+no test-label selection or competition-points claims.
 
-**Anticipated cross-boundary changes:** None expected. Updating shared evaluation
-reports or application model labels remains separately approved work.
+**Anticipated cross-boundary changes:** None for internal calibration. An application
+change to display new explanation scope, calibration labels or model identity must
+be proposed and approved in that workflow; no public explanation field is added here.
 
-## Step 6. Verify performance, reproducibility and application compatibility
+## Step 6. Verify, measure and hand off the selected engine
 
-**Objective and implementation:** Measure feature-building, fitting, prediction and
-provenance costs separately. Optimize only demonstrated bottlenecks, for example
-indexing publication times, reusing normalized tables or batching horizon features.
-Keep the audited feature path as a reference for equivalence. Do not introduce unsafe
-cross-origin caches, lose dependency evidence, or add GPU/distributed infrastructure
-without a demonstrated need and separate scope approval.
+**Objective and implementation:** Run full contract, leakage, provenance, reproducibility
+and compatibility acceptance. Measure feature generation, each head's fitting,
+calibration, inference, native attribution and lineage memory/time separately. Optimize
+only measured bottlenecks, preserving an audited reference path and complete evidence.
+Do not weaken availability checks, remove lineage or add distributed/GPU infrastructure
+without demonstrated need and separately approved scope/dependencies.
 
-Run the frozen validation recipe twice and compare identifiers, prediction values,
-metrics, fitting state and stable provenance/configuration hashes within declared
-tolerances. Record environment/thread settings and timing/memory observations. Refit
-the frozen selected recipe once using `RunConfig.test()` and generate the full test
-submission without scoring or reading test actuals. Preserve the baseline artifact
-and identify which model generated every run.
+Repeat frozen full validation twice. Compare keys, numerical outputs, `top_drivers`,
+all official metrics, fitted state, configuration and stable provenance hashes within
+predeclared tolerances. Record LightGBM/native runtime versions, seeds, thread settings
+and operating system; do not promise byte identity across platforms without testing.
+Refit the frozen recipe once with `RunConfig.test()` and generate 673 origins × 40 =
+26,920 test rows. Validate with unchanged tools; never load, hash or score test actuals.
+Retain and identify baseline artifacts and any declared fallback usage.
 
-Exercise the documented application caller with each fitted model, including one
-origin, later origins and a batch. Model initialization remains the only selection
-point; no public signature, JSON assumption or application implementation is changed
-here. Provide a copyable handoff naming the model module, dependency versions, tested
-engine revision, startup costs and known limitations. Do not activate it in the app.
+Exercise one public caller with persistence and LightGBM for a single origin, later
+origins and batches, including the application's first validation origin. The existing
+backend accepts `predictor` and an explicit `model_id` at preparation; verify that
+selection pattern in engine-side compatibility tests without editing the application.
+Fit once and preserve learned state across requests/predictions. Record initialization
+and attribution cost for the app's startup/cache design. If cost requires persistence
+or artifact-loading changes, propose the adapter rather than altering startup here.
 
-**Expected files:** Modify only measured bottlenecks under `features/` or the candidate
-model modules; add `tests/test_ml_acceptance.py` and extend package-local compatibility
-tests and experiment guide. No optimization change is required if measurements show
-no useful bottleneck.
+Prepare a copyable technical handoff in the engine-local guide: exact predictor import
+and recipe selection, dependency setup/licences, tested source revision/hash, startup
+and inference cost, output/fallback behavior, `top_drivers` vocabulary/P50 scope/privacy,
+and remaining limits. Describe any proposed richer explanation interface separately
+with example synthetic records, units, transformation scope and approval status.
+No application activation, narrative generator or endpoint is part of this step.
 
-**Verify:** Run both suites, real-data single/batch compatibility and repeated full
-validation. Compare optimized and reference features, outputs and full evidence on
-synthetic boundary cases and supplied-data samples. Run unchanged official validator
-on 673 test origins × 40 = 26,920 rows; require zero errors and explain any warnings.
-Check source/input integrity, no test actual access, no restricted values in tracked
-files, and baseline usability without ML. Report checks unavailable on other platforms.
+**Expected files:** Add `tests/test_ml_acceptance.py`; modify only measured bottlenecks
+under existing feature/model/explainability modules and their internal tests. Complete
+`experiments/README.md` and compatibility tests. No optimization edit is required when
+measurements show no worthwhile bottleneck; generated evidence stays ignored.
 
-**After this step:** A reproducible, validated selected model or explicit baseline
-fallback is ready for application integration and submission review, with measured
-resource costs and a separate review handoff.
+**Verify:** Run both suites, repeated official validation, public caller compatibility,
+model-state fingerprints and safe logging checks. Compare optimized/reference features,
+predictions, category rankings and full lineage on boundaries and supplied samples.
+Require zero test-validator errors and explain warnings. Inspect changed files for
+restricted values; check starter/input integrity, baseline import without LightGBM,
+and no test actual access. Report missing Windows/macOS/native-runtime checks honestly.
 
-**Acceptance criteria:** The complete test grid passes official validation; repeated
-validation is reproducible; performance changes preserve leakage/evidence/contract
-checks; and a single public caller works with baseline and candidate. Any claimed
-improvement has official chronological comparison evidence. Test accuracy remains
-unknown. Final integration, commit, push and merge are not authorized by acceptance.
+**After this step / deliverables:** A complete structurally validated test forecast,
+reproducibility/performance evidence and a technical application handoff for the selected
+model or explicit persistence fallback, ready for independent review.
 
-**Anticipated cross-boundary changes:** Application startup selection and installing
-the approved dependency on the coworker's environment require coordination and explicit
-approval before execution. A shared guide/report update is optional. A public-interface
-change is not planned; if one appears necessary, stop it and issue the standing notice.
+**Acceptance criteria:** Correct full grid, ordered quantiles, valid probabilities,
+chronological evidence and unchanged public integration pass verification. Attributions
+remain faithful/private and top-driver identifiers reproducible. Any improvement claim
+is supported by official chronological metrics; test accuracy remains unknown.
+No implicit authorization to activate, commit, push or merge follows acceptance.
+
+**Anticipated cross-boundary changes:** Coordinate application predictor/model-id
+selection, driver allowlist display and LightGBM/native dependency setup before executing
+those changes. Propose any optional explanation interface separately. Shared guides,
+packaging, external tests or runtime adapters require the standing notice. Engine
+acceptance can proceed through the existing contract without rich explanation access.
 
 ## Execution and review gates
 
-This planning task creates only `docs/model-improvement-roadmap.md`. No source file,
-dependency, application file, test or training run is changed/executed by drafting.
+This planning task modifies only `docs/model-improvement-roadmap.md`. No source file,
+application file, dependency, test or training run is changed/executed by drafting.
 
-For implementation, obtain explicit authorization for one step and any cross-boundary
+For implementation, obtain explicit authorization for one step (or one Step 1 substep)
+and any cross-boundary
 prerequisites. At completion, stop and provide scope, exact changed files, rationale,
 branch/base/HEAD, actual commands/results, dependency environment, private output
 locations and limitations, plus the required cross-boundary status. Never infer a
