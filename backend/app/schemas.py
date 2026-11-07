@@ -4,7 +4,7 @@ from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 import json
 import re
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 from uuid import UUID
 
 from forecast_engine import RunConfig, validate_forecasts
@@ -77,6 +77,46 @@ class OriginsResponse:
     fit_cutoff_utc: str
     default_origin_utc: str
     origins: tuple[str, ...]
+
+    def to_json(self) -> str:
+        return json.dumps(asdict(self), allow_nan=False, ensure_ascii=False, separators=(",", ":"))
+
+
+@dataclass(frozen=True, slots=True, repr=False)
+class HistoryPoint:
+    delivery_start_utc: str
+    step: int
+    actual_imbalance_price: float | None
+    actual_direction: Literal["up", "down", "none"] | None
+
+
+@dataclass(frozen=True, slots=True)
+class HistoryMetrics:
+    total_quarters: int
+    matched_price_count: int
+    missing_price_count: int
+    matched_direction_count: int
+    missing_direction_count: int
+    mae_p50: float | None
+    coverage_p10_p90: float | None
+    covered_price_count: int
+
+
+@dataclass(frozen=True, slots=True, repr=False)
+class HistoryResponse:
+    schema_version: str
+    run_id: str
+    model_id: str
+    predictor_id: str
+    engine_revision: str
+    generated_at_utc: str
+    forecast_origin_utc: str
+    fit_cutoff_utc: str
+    comparison_mode: Literal["retrospective"]
+    actuals_snapshot_id: str
+    actuals_loaded_at_utc: str
+    metrics: HistoryMetrics
+    points: tuple[HistoryPoint, ...] = field(repr=False)
 
     def to_json(self) -> str:
         return json.dumps(asdict(self), allow_nan=False, ensure_ascii=False, separators=(",", ":"))

@@ -6,7 +6,8 @@ Steps 2A and 2B were approved and published by the user. Step 3 is split into 3A
 (backend selection/cache) and 3B (browser selector). Step 3A was reviewed, approved
 and published; the user authorized 3B on 7 November 2026. Its results and verification
 limits are recorded below. The user separately authorized Step 4 as one implementation
-step on 8 November 2026. Step 5 and later work require separate approval. The user confirmed on
+step on 8 November 2026. Step 5 is now split into 5A (history API) and 5B (comparison
+UI); the user authorized 5A on 8 November. Step 5B and later work require separate approval. The user confirmed on
 7 November 2026 that engine Step 6
 passed independent review and was published to GitHub. Older engine documents still
 describe that review as pending; this plan records the update without editing them.**
@@ -762,6 +763,11 @@ bounded six-origin selection, pending browser verification and independent revie
 
 ## Step 5. Compare forecasts with actual outcomes
 
+Implement in two separately reviewed halves, as agreed with the user. Only Step 5A
+is currently authorized; Step 5B needs explicit approval after the backend handoff.
+
+### Step 5A. Separate validation history API
+
 **Objective and implementation:** Reuse Step 3's origin selection and cached forecasts.
 Create a separate actuals adapter and `GET /api/history?origin=...`. Explicitly read
 only delivery timestamp, imbalance price and direction from validation actuals;
@@ -770,39 +776,102 @@ all forecast rows, and return missing outcomes as null. Do not send original act
 files or derive historical spot values for display. Actuals are loaded only for
 retrospective comparison and have no path into the engine adapter or fitting.
 
-Add an actual imbalance-price overlay, off by default and enabled only by an explicit
-"Show actual outcomes" control. Clearly label the overlay and metrics as retrospective
-outcomes revealed afterward, rather than information available at the forecast origin.
-Fetch history only when the user enables comparison. Report observed MAE, interval
-coverage and matched/missing counts for the selected origin where outcomes exist;
-use an application summary with explicit sample
-size, not official competition points. Do not calculate spike outcomes from restricted
-spot data for the UI. Selecting an earlier origin selects its already valid forecast;
-it does not retrain or use actuals as an input. Cancel/ignore stale frontend responses
-when selection changes.
+Return selected-origin MAE, inclusive interval coverage and explicit matched/missing
+price/direction counts. Metrics describe available observations for this forecast, not
+official competition points or full validation scores. Zero observed prices means
+null MAE/coverage, not zero error. Require one cached UTC origin and safe error states.
+Give outcome snapshots their own identity/load timestamp alongside forecast metadata.
+Load actuals only on explicit history retrieval, not normal forecast requests/startup.
 
-**Expected new files:** `backend/app/actuals.py`, `backend/tests/test_history.py`,
-`frontend/src/components/HistoricalReview.tsx`, and focused frontend
-history tests. Modify backend config/service/routes/schemas and their tests, frontend
-API/types/App/chart, and both local guides. No test-period actuals are accessed.
+**Files:** New `backend/app/actuals.py` and `backend/tests/test_history.py`; update
+backend config/routes/schemas, affected API tests, explicit HTTP smoke, backend guide
+and this roadmap. Forecast service/engine and all frontend code remain unchanged.
 
 **Verify:** Check missing/tail actuals, exact UTC joins, distinct forecasts for overlapping
 delivery windows, invalid origins and counts/metrics against hand-calculated synthetic
 examples. Guard fit call count across selection and ensure actuals cannot enter the
-prediction service. Verify response races, loading/errors and null chart gaps. Check
-that no history request or outcome display occurs before comparison is enabled.
+prediction service. Check concurrent lazy loading, safe failures, snapshot/cache
+lifetimes, nullable missing outcomes and no actuals load before explicit comparison.
 Use a synthetic restricted spot sentinel to prove the actuals adapter does not read/serialize
 that column. Real validation-data smoke compares a small set of origins through the
 API and engine; verify repeated retrieval and honest missing-outcome display.
 
-**After this step:** Users can review selected historical forecasts against observed
-outcomes and see both uncertainty and realized forecast error.
+**After this half:** Users can inspect history JSON/Swagger for cached forecasts;
+no overlay or comparison control is added. Stop for review and Step 5B approval.
 
 **Acceptance criteria:** Only allowed validation origins are selectable; all predictions
 use the correct pre-validation fit and original as-of rules. Forty steps remain present
 even with missing outcomes. Selected-origin metrics show denominators and are not
 presented as full validation scores. Restricted fields remain absent, requests do not
 refit, and actuals/prediction separation is verified.
+
+### Step 5A implementation and verification
+
+Added a separate `HistoryConfig`, immutable `ActualsStore` in `actuals.py`, explicit
+HistoryPoint/Metrics/Response schemas and required-origin `/api/history`. Source must
+be validation actuals, with unique UTC quarter-hours inside the validation period.
+Only three approved columns are selected into memory; spot and publication fields
+are excluded. Blank price/direction fields remain independently null; malformed
+nonempty data rejects the whole load. The outcome store has no path to the forecast
+adapter, fitting or features; that service is unchanged.
+
+The first explicit valid history request loads once off the event loop under a lock,
+then caches per-origin serialized comparisons. Missing/invalid files affect history
+only and can be fixed/retried. Successful snapshots persist until shutdown, independent
+of later file edits. Forecast metadata is copied exactly; separate actuals UUID/load
+time and `comparison_mode: retrospective` identify outcomes revealed afterward. Forty
+rows are retained, with per-field availability counts, P50 MAE and inclusive P10–P90
+coverage over matched prices. Null metrics cover no matches. No spike outcomes or
+numerical spot-relative levels are calculated. Query/validation/failure responses are
+sanitized and `no-store`.
+
+**31 relevant tests passed across focused runs**, including eight new history cases:
+
+```powershell
+.\.venv\Scripts\python.exe -W error::FutureWarning -m unittest backend.tests.test_history backend.tests.test_forecast_api.ForecastApiTests backend.tests.test_origin_selection backend.tests.test_forecast_service.ConfigurationAndImportTests -q
+.\.venv\Scripts\python.exe -W error::FutureWarning -m backend.tests.smoke_forecast_api --data-dir data --include-history
+git diff --check
+```
+
+Tests cover hand-calculated metrics/boundaries, missing/tail data, precise joins and
+overlapping windows, an invented restricted-column sentinel, bad sources/queries,
+required-origin OpenAPI, concurrent one-time loading, snapshot refresh, unchanged
+forecast retrieval and sanitized response/error handling. After refining required-origin
+documentation/error behavior, all eight history tests passed again. No unrelated
+frontend/engine/optional-ML suites were rerun and no dependency changes were needed.
+
+The explicit real HTTP smoke verified all six origins: **240 forecasts and 240
+history rows** matched their retained engine/independent three-column reference
+respectively, including comparison metrics and stable snapshot/forecast metadata.
+It observed one fit, one batch prediction, two source-input reads, one application
+actuals read and one extra independent reference read. No extra fit/predict occurred
+on comparison, cached forecast JSON/input hashes stayed unchanged, and the temporary
+server shut down. Normal smoke behavior still loads no actuals without the explicit
+`--include-history` flag. Report cache-size fields cover forecasts, not outcome caches.
+
+Windows Python 3.12.16, pandas 2.2.3, NumPy 2.3.5 and existing locked HTTP dependencies.
+Local preparation/startup were 36.642s/36.754s, not performance guarantees. Engine
+revision used:
+`sha256:b933f7932aefa2e4edd030291e259a92178d82afd6858b206b9b45a4cf3c0fae`.
+Safe report/handoff: `baseline_output/application/step-5a-01/`. Frontend, forecast
+service, engine, dependencies, original files and test actuals remain untouched.
+macOS and interactive Swagger/browser comparison were not verified. No accuracy
+improvement claimed. **Engine change proposals: None.** Stop before Step 5B/Git writes.
+
+### Step 5B. Optional retrospective comparison UI (not yet authorized)
+
+Add `HistoricalReview.tsx`, CSS and focused tests, with frontend API/types/App/chart
+integration and guide updates. Place Show actual outcomes beside the price-chart
+heading, off by default. Enabling it fetches the selected history and adds a distinct
+observed-price overlay plus compact MAE/coverage/matched-count strip below the chart.
+Label all comparison values as retrospective outcomes revealed afterward, never
+information available at issue time. Probability plots remain forecast-only.
+
+Changing origin updates an enabled comparison; cancel/ignore stale history requests
+and validate forecast/outcome run identity. Missing actuals appear as gaps; keep all
+40 quarters. No history request or outcome display before enabling comparison.
+Verify real integration, errors/retry, rapid selection and missing/tail/null cases.
+Stop for independent review and explicit Step 6 approval after 5B.
 
 ## Step 6. Improve usability, evidence and the local demonstration
 
@@ -895,5 +964,5 @@ Use [the independent review workflow](REVIEW.md); obtain approval for the affect
 candidate before any separately authorized push. An approved roadmap or review verdict
 does not authorize implementation of the next step, committing, pushing or merging.
 
-The roadmap was initially a planning-only change. Steps 1A, 1B, 2A, 2B, 3A, 3B and 4's separately
+The roadmap was initially a planning-only change. Steps 1A, 1B, 2A, 2B, 3A, 3B, 4 and 5A's separately
 authorized implementation and actual verification are recorded above; later steps remain gated.

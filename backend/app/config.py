@@ -52,3 +52,22 @@ class ForecastConfig:
         directory = (Path(data_dir) if data_dir is not None
                      else Path(__file__).resolve().parents[2] / "data")
         return cls(directory / "inputs.csv", directory / "spot_nordpool.csv")
+
+
+@dataclass(frozen=True, slots=True)
+class HistoryConfig:
+    """Validation outcomes are a separate source, never a forecast input."""
+
+    actuals_path: Path = field(repr=False)
+
+    def __post_init__(self) -> None:
+        path = Path(self.actuals_path).expanduser().resolve()
+        if path.name.lower() != "actuals_validation.csv":
+            raise ValueError("History requires the validation actuals file.")
+        object.__setattr__(self, "actuals_path", path)
+
+    @classmethod
+    def from_data_dir(cls, data_dir: str | Path | None = None) -> "HistoryConfig":
+        directory = (Path(data_dir) if data_dir is not None
+                     else Path(__file__).resolve().parents[2] / "data")
+        return cls(directory / "actuals_validation.csv")
