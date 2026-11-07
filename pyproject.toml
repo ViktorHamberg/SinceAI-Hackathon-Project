@@ -1,0 +1,13 @@
+[build-system]
+requires = ["setuptools>=64", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "forecast-engine"
+version = "0.1.0"
+description = "Importable Finnish imbalance-price forecasting engine"
+requires-python = ">=3.11"
+dependencies = ["pandas>=2.2,<4", "numpy>=1.26,<3"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
