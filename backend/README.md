@@ -1,8 +1,8 @@
-# Backend: prepare a historical forecast (Step 1A)
+# Backend: historical forecast service and local HTTP API
 
 The application service prepares one genuine engine forecast and retains a safe JSON
 response. It uses the existing persistence predictor, not an improved ML model.
-FastAPI routes and the browser are later steps; this version does not start a server.
+Step 1B adds FastAPI endpoints around the tested service. A frontend is a later step.
 
 ## Files and responsibilities
 
@@ -11,11 +11,16 @@ FastAPI routes and the browser are later steps; this version does not start a se
 | `app/config.py` | Explicit local source paths; defaults derive from this checkout. |
 | `app/forecast_service.py` | Load, fit once, predict once, retain the result and serve cached JSON. |
 | `app/schemas.py` | Validate the forecast and serialize only approved response fields. |
+| `app/main.py` | Own FastAPI startup/shutdown, readiness and cached forecast routes. |
+| `requirements.txt` | Pin the tested HTTP runtime, serialization stack and test client. |
 | `tests/test_forecast_service.py` | Synthetic correctness, lifecycle, privacy and portability checks. |
+| `tests/test_forecast_api.py` | HTTP contract, lifecycle, error safety and concurrent retrieval checks. |
 | `tests/smoke_forecast.py` | Explicit real-data acceptance check with value-free output. |
+| `tests/smoke_forecast_api.py` | Start a temporary loopback server and verify real HTTP responses against the engine. |
 
-No new dependency, root packaging change or engine modification is required. This
-backend is imported from the repository root; it is not a separately installed package.
+Step 1A required no new dependencies. Step 1B's dependencies are confined to the
+backend manifest; root packaging, starter requirements and the engine are unchanged.
+The backend is imported from the repository root, not separately installed.
 
 ## Setup on Windows and macOS
 
@@ -35,6 +40,7 @@ The preparation service itself performs no file writes or network requests.
 Run commands from the repository root. Windows PowerShell:
 
 ```powershell
+.\.venv\Scripts\python.exe -m pip install -r backend/requirements.txt
 .\.venv\Scripts\python.exe -W error::FutureWarning -m unittest discover -s backend/tests -v
 .\.venv\Scripts\python.exe -W error::FutureWarning -m backend.tests.smoke_forecast --data-dir data
 ```
@@ -42,12 +48,16 @@ Run commands from the repository root. Windows PowerShell:
 macOS:
 
 ```bash
+.venv/bin/python -m pip install -r backend/requirements.txt
 .venv/bin/python -W error::FutureWarning -m unittest discover -s backend/tests -v
 .venv/bin/python -W error::FutureWarning -m backend.tests.smoke_forecast --data-dir data
 ```
 
 The synthetic suite needs no challenge data and creates only temporary synthetic
-files. The smoke command explicitly uses local data and prints a JSON check report
+files. Install `backend/requirements.txt` first for the HTTP tests (commands below).
+The Step 1A service tests can still run without HTTP dependencies using
+`python -m unittest backend.tests.test_forecast_service -v` in the engine environment.
+The smoke command explicitly uses local data and prints a JSON check report
 with counts, identifiers, dependency versions and preparation time. It prints no
 source prices or individual forecasts. It exits 0 on success and nonzero on failure.
 Run that same command on the Mac before claiming this step is verified on both OSes.
@@ -79,8 +89,8 @@ are never supplied to the service. These are historical forecasts, not live data
 Preparation can be slow because it includes full historical calibration and its
 dependency evidence. Retain the returned service; do not call `prepare_forecast` for
 each future HTTP request. Each deliberate new call creates a new independent run.
-In Step 1B the FastAPI lifespan will own this service; each process/reload will prepare
-again. One worker is the initial policy. No fitted-model persistence or existing-CSV
+The FastAPI lifespan owns this service; each process/reload prepares again.
+One worker is the initial policy. No fitted-model persistence or existing-CSV
 reader is implemented. Reassess preparation costs before adopting an expensive model.
 
 Retrieval performs no loading, fitting, prediction, source hashing or disk writes.
@@ -133,8 +143,8 @@ Source changes detected during preparation invalidate the snapshot.
 Preparation either returns a complete validated service or raises
 `ForecastPreparationError`. Its message identifies a fixed failure stage and suppresses
 raw chained parser/model diagnostics. The service writes no logs and never substitutes
-mock forecasts. A future HTTP adapter should handle this safe error, rather than logging
-exception context or returning raw exceptions.
+mock forecasts. The HTTP adapter fails startup with a fixed diagnostic, rather than
+logging exception context or returning raw exceptions.
 
 For `loading inputs` failures, check paths, private file presence and the engine's
 required seven-column source format. For `fitting`/`prediction` failures, run the
@@ -168,6 +178,134 @@ Preparation took 54.086 seconds while the engine suite ran concurrently; this is
 local cost observation, not an isolated performance benchmark. Safe evidence is in
 `baseline_output/application/step-1a-01/smoke_report.json`.
 
-macOS execution, fresh environment provisioning, HTTP and browser behavior are not
-verified in this step. Forecast accuracy is unchanged baseline quality. Step 1B has
-not started and requires separate authorization after the review handoff.
+For that Step 1A acceptance, macOS, fresh provisioning, HTTP and browser behavior were
+not verified. Its independent review was subsequently approved and the changes were
+published by the user. Forecast accuracy remains baseline quality. Step 1B's separate
+HTTP checks are recorded below.
+
+## Start the local HTTP server (Step 1B)
+
+Install the backend dependencies into the same environment as the editable engine.
+The manifest pins the tested direct packages and the serialization/middleware pair.
+Lower-level transitive dependencies are resolved by pip; this is not a full lockfile.
+The dependency versions tested here are listed below. Do not change the starter's
+root `requirements.txt` or copy your environment to the other machine.
+
+Windows PowerShell, from the repository root:
+
+```powershell
+.\.venv\Scripts\python.exe -m pip install -r backend/requirements.txt
+.\.venv\Scripts\python.exe -m pip check
+.\.venv\Scripts\python.exe -m uvicorn backend.app.main:app --host 127.0.0.1 --port 8000 --workers 1 --no-access-log
+```
+
+macOS, from the repository root:
+
+```bash
+.venv/bin/python -m pip install -r backend/requirements.txt
+.venv/bin/python -m pip check
+.venv/bin/python -m uvicorn backend.app.main:app --host 127.0.0.1 --port 8000 --workers 1 --no-access-log
+```
+
+Keep that terminal open. Wait for `Application startup complete` before requesting
+the API. Full historical calibration happens once during startup; measured startup
+was about a minute locally. Uvicorn does not serve requests while preparation runs.
+Use Ctrl+C to stop. If port 8000 is already in use, stop the other server or choose
+another local port and use that port in the URLs.
+
+Open these URLs after startup:
+
+| URL | Result |
+|---|---|
+| `http://127.0.0.1:8000/docs` | Interactive Swagger API documentation; expand GET and use Try it out / Execute. |
+| `http://127.0.0.1:8000/api/health` | `{"status":"ready"}` after successful preparation. |
+| `http://127.0.0.1:8000/api/forecast` | The genuine cached 40-quarter historical forecast, including probabilities and run metadata. |
+| `http://127.0.0.1:8000/openapi.json` | Machine-readable API schema derived from the existing response dataclasses. |
+
+The root URL `/` returns 404: there is no dashboard yet. Documentation UI assets use
+FastAPI's default external CDN; the API endpoints themselves work locally without
+external market-data requests. A blocked CDN can prevent the interactive docs from
+rendering while the JSON endpoints still work.
+
+Both API endpoints currently accept no query parameters. An `origin=...` parameter
+returns 400; selection is a later step. Neither endpoint accepts source paths, training
+settings or model selection. The forecast is fixed to the first validation origin,
+not today's date. No dataset/static-file route, authentication or CORS middleware is
+added. Bind only to loopback; the planned Vite proxy will keep browser API calls relative.
+
+Server-side reuse and HTTP caching are separate: the service retains one snapshot,
+while responses send `Cache-Control: no-store` so clients do not retain stale snapshots
+across restarts. A successful lifespan calls preparation once; requests never fit or
+predict. Shutdown clears the service reference. Each independent process/reload starts
+a new run. Avoid `--reload` for a stable demo; development reload repeats calibration.
+The documented server command disables access logs to avoid logging client query text.
+
+The route uses the existing `ForecastResponse` dataclass as its response model; there
+is no parallel HTTP forecast schema. FastAPI validates/filters the detached response
+again at the boundary and documents it in OpenAPI. Startup errors prevent serving;
+uninitialized services yield 503 in direct ASGI checks. Invalid responses and unexpected
+retrieval errors return fixed 500 messages without echoing/logging offending content.
+
+For trusted local composition with a custom data directory, use
+`create_app(ForecastConfig.from_data_dir(...))` from `backend.app.main`. A local
+`service_factory` hook supports tests and separately approved predictor composition.
+These are Python startup options, never browser parameters. The factory must return
+the actual Step 1A `ForecastService`; normal `backend.app.main:app` always prepares the
+genuine default predictor. No engine changes or new inference path were needed.
+
+## Test HTTP without a frontend
+
+Run in another terminal from the repository root:
+
+```powershell
+.\.venv\Scripts\python.exe -W error::FutureWarning -m unittest discover -s backend/tests -v
+.\.venv\Scripts\python.exe -W error::FutureWarning -m backend.tests.smoke_forecast_api --data-dir data
+```
+
+On macOS substitute `.venv/bin/python`. The synthetic suite uses no challenge data.
+The HTTP smoke starts one temporary Uvicorn server on an unused loopback port,
+prepares the real forecast once, compares the HTTP response to the retained engine
+result, tests repeated retrieval and documentation, and stops its own server. It
+does not require or stop an already running port-8000 server. It prints only safe
+metadata/counts, not individual prices. Source data remains server-side.
+
+HTTP testing uses `httpx2`, the supported client for the pinned Starlette version;
+plain `httpx` is deprecated in that TestClient. This choice follows the installed
+library and [Starlette's current test-client documentation](https://starlette.dev/testclient/).
+The lifespan and dataclass integration follow the
+[FastAPI lifespan](https://fastapi.tiangolo.com/advanced/events/) and
+[dataclass response](https://fastapi.tiangolo.com/advanced/dataclasses/) guides.
+
+| Direct component | Tested version | Package licence |
+|---|---|---|
+| FastAPI | 0.162.2 | MIT |
+| Uvicorn | 0.54.0 | BSD-3-Clause |
+| HTTPX2 | 2.16.0 | BSD-3-Clause |
+| Pydantic | 2.14.3 | MIT |
+| Starlette | 1.10.0 | BSD-3-Clause |
+
+Licences above come from installed package metadata. Existing engine dependencies
+were not upgraded. macOS installation/execution still needs verification.
+
+## Step 1B verification actually performed
+
+Windows, 7 November 2026, using the same Python/engine environment as Step 1A and the
+HTTP versions listed above. All 27 backend tests passed (14 existing service tests
+plus 13 new HTTP tests), with FutureWarnings treated as errors. All 74 unchanged
+engine tests also passed. `pip check`, Python compilation and `git diff --check` passed.
+Pre/post hashes confirmed 41 recorded engine, Step 1A, original-tool and ignore files
+were unchanged.
+
+The supplied-data HTTP smoke passed through a temporary Uvicorn server on loopback:
+all 40 quarters matched the retained engine result, repeated HTTP responses preserved
+values/metadata, fit/predict counts were one each, two source CSVs were parsed and zero
+actuals were read. Source hashes stayed unchanged. Docs/OpenAPI, unsupported-origin
+rejection, absence of a data-file route and server shutdown passed. Preparation took
+56.275 seconds and server startup 56.384 seconds; these are local observations, not
+performance guarantees. No raw prices were printed. The safe report is under ignored
+`baseline_output/application/step-1b-01/http_smoke_report.json`.
+
+macOS, fresh provisioning and interactive browser rendering of Swagger's CDN assets
+remain unverified; documentation HTML/OpenAPI were checked over real HTTP. No new
+full-period evaluation was needed because forecasting logic is unchanged. Step 1B
+awaits independent review; no frontend work, commit, push or merge has been performed.

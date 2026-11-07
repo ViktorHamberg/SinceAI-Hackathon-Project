@@ -1,7 +1,8 @@
 # Application: incremental implementation plan
 
-**Status: Step 1A implemented and verified on Windows; awaiting independent review.
-Step 1B and later steps are not implemented or authorized. The user confirmed on
+**Status: Steps 1A and 1B implemented and verified on Windows. Step 1A passed independent
+review and was published by the user. Step 1B awaits independent review; Step 2 and
+later work are not authorized. The user confirmed on
 7 November 2026 that engine Step 6
 passed independent review and was published to GitHub. Older engine documents still
 describe that review as pending; this plan records the update without editing them.**
@@ -259,12 +260,67 @@ lifecycle. No actuals are loaded. Safe errors and privacy checks pass. Record ac
 checks, engine revision and startup time; make no performance claim in advance.
 Stop for review and explicit Step 2 approval.
 
+### Step 1B result and verification
+
+Added `backend/app/main.py`, `backend/requirements.txt`,
+`backend/tests/test_forecast_api.py` and `backend/tests/smoke_forecast_api.py`.
+Updated the backend guide with Windows/macOS installation, single-worker loopback
+startup, endpoint/docs usage, supported response behavior and component licences.
+No Step 1A service/schema/config change, engine change or additional ignore file
+was needed. Dependencies were installed only into the existing project environment;
+the original requirements and packaging remain unchanged.
+
+The app factory declares HTTP behavior without preparing the engine on import.
+Lifespan prepares the genuine service once, off the event loop, and clears its state
+on shutdown. GET `/api/forecast` reuses the existing `ForecastResponse` dataclass for
+response validation/OpenAPI and returns the cached data. GET `/api/health` reports
+readiness only. Responses have `Cache-Control: no-store`; unsupported query parameters
+return 400 rather than silently pretending origin selection works. Startup/response
+failures expose fixed diagnostics. No data-file route or CORS middleware was added.
+
+Windows checks on 7 November 2026 used Python 3.14.2, pandas 3.1.1, NumPy 2.5.4,
+FastAPI 0.162.2, Uvicorn 0.54.0, HTTPX2 2.16.0, Pydantic 2.14.3 and Starlette 1.10.0:
+
+```powershell
+.\.venv\Scripts\python.exe -m pip install -r backend/requirements.txt
+.\.venv\Scripts\python.exe -m pip check
+.\.venv\Scripts\python.exe -W error::FutureWarning -m unittest discover -s backend/tests -v
+.\.venv\Scripts\python.exe -W error::FutureWarning -m unittest discover -s tests -v
+.\.venv\Scripts\python.exe -W error::FutureWarning -m backend.tests.smoke_forecast_api --data-dir data
+.\.venv\Scripts\python.exe -m compileall -q backend
+git diff --check
+```
+
+All 27 backend tests (14 existing plus 13 HTTP) and all 74 unchanged engine tests
+passed. Pre/post hashes confirmed 41 recorded engine, Step 1A, original-tool and
+ignore files unchanged. The HTTP tests cover lifespan readiness/cleanup, concurrent retrieval, safe
+startup/retrieval/validation failures, response filtering, import isolation, query
+rejection and docs/OpenAPI. The real-data smoke started a temporary loopback Uvicorn
+server and passed exact 40-quarter HTTP/engine agreement, repeated-response equality,
+one fit/predict per startup, two source CSV parses, zero actuals reads, unchanged input
+hashes, docs/OpenAPI, unavailable file routes and shutdown. Preparation was 56.275
+seconds; server startup was 56.384 seconds. These are local observations. Safe evidence:
+`baseline_output/application/step-1b-01/http_smoke_report.json`.
+
+macOS, fresh provisioning and interactive browser rendering remain unverified.
+HTTPX2 follows the pinned Starlette version's supported TestClient; plain HTTPX is
+deprecated there. Direct HTTP/serialization packages are pinned; transitive dependency
+versions are recorded in private evidence rather than claimed fully locked.
+**Engine change proposals: None.** Stop for independent review and explicit Step 2
+approval. No frontend, commit, push or merge is authorized by these results.
+
 ## Step 2. Display the forecast and uncertainty in the browser
 
 **Objective and implementation:** Create the Vite React/TypeScript frontend with
 Tailwind and Recharts. Fetch `/api/forecast` through the development proxy. Define
 application-owned TypeScript response types and validate essential response shape at
 the boundary so malformed or incomplete data produces an error state.
+
+The user's visual reference is Turku Energia's website: a white background, charcoal
+text and restrained warm-orange accents, with supporting colours only where useful.
+Use our own clear layout and prioritize simple controls, readable charts and solid
+functionality. This is a design direction for the frontend step, not frontend work
+authorized as part of the backend milestones.
 
 Render p50 as a line and p10–p90 as an interval over all 40 delivery quarters, with
 EUR/MWh units, legend and exact-value tooltips. Use a range area or equivalent band
@@ -468,7 +524,7 @@ The engine guide remains the source for engine installation and private input se
 
 # Once Step 1B is authorized and the HTTP adapter/dependencies exist:
 .venv/bin/python -m pip install -r backend/requirements.txt
-.venv/bin/python -m uvicorn backend.app.main:app --host 127.0.0.1 --port 8000
+.venv/bin/python -m uvicorn backend.app.main:app --host 127.0.0.1 --port 8000 --workers 1 --no-access-log
 
 # In another terminal, once Step 2 exists:
 cd frontend
@@ -498,5 +554,5 @@ Use [the independent review workflow](REVIEW.md); obtain approval for the affect
 candidate before any separately authorized push. An approved roadmap or review verdict
 does not authorize implementation of the next step, committing, pushing or merging.
 
-The roadmap was initially a planning-only change. Step 1A's separately authorized
+The roadmap was initially a planning-only change. Steps 1A and 1B's separately authorized
 implementation and actual verification are recorded above; later steps remain gated.
