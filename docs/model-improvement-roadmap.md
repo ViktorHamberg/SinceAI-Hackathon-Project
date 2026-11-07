@@ -109,6 +109,32 @@ Fit/preprocessing/calibration are frozen; attribution is read-only inference wor
   digest alone cannot replace the dependency records required by the existing contract.
   Do not weaken `engine.py` checks to accommodate a faster predictor.
 
+## Standing test selection rule
+
+For all future work, select tests from the actual change and its possible effects.
+Start with focused tests for changed behavior, then include regression and integration
+checks for consumers that could be affected. For example, feature changes can affect
+training and prediction; result assembly can affect export, official validation and
+backend serialization. Do not run every engine, backend and frontend suite by default.
+
+Broaden testing when shared contracts, dependency/environment changes, failures or
+uncertain impact justify it. Explain that reason before running a broad suite. After
+checks pass, repeat or expand them only for new changes, failures, unresolved risks or
+an explicitly required acceptance/reproducibility check. Do not repeat expensive
+full-data experiments for unrelated edits. Documentation-only changes normally need
+document and diff checks, not model training or code test suites.
+
+Earlier references to running "both suites" or all package/engine/backend tests are
+subject to this rule for future execution; they are not blanket requirements at every
+checkpoint. Preserve each step's substantive acceptance criteria, including required
+official validation/scoring and chronological full-data comparisons. At handoff,
+report the checks selected, why they cover the affected behavior, actual results and
+any remaining verification gaps. Do not infer compatibility from signatures alone.
+
+This rule also applies to independent reviewers. Include it explicitly in review
+prompts. Reviewers choose their checks independently and may expand coverage for
+identified risks, explaining the reason before running broader tests.
+
 ## Standing integration compatibility rule
 
 Apply this rule to every step and substep, including intermediate checkpoints. Keep
@@ -367,12 +393,70 @@ with its own review handoff and approval pause; no implementation is authorized 
 
 ## Step 2. Deliver the complete LightGBM forecasting system
 
-**Objective and implementation:** After explicit dependency approval, implement
-`LightGBMPredictor.fit(data, config=...)` and a frozen fitted implementation returning
-`ForecastResult` through the unchanged `forecast(...)` call. Use the native Booster API,
-small fixed-seed CPU configurations and fixed training iterations initially. No random
-validation split, automatic tuning, GPU requirement or early-stopping dependency.
-Later early stopping must use an explicit earlier chronological assessment window.
+Split this milestone into three sequential, independently reviewed substeps. Implement
+only the explicitly authorized substep, then explain what works, report actual checks,
+provide its review handoff and stop. Approval of 2A does not authorize 2B or 2C, and
+dependency changes still require the standing cross-boundary notice and explicit
+approval. Step 2 is complete only when all three are accepted. All engine paths below
+are relative to `src/forecast_engine/`; shared dependency paths are repository-relative.
+
+The same permanent architecture spans all three checkpoints: shared Step 1 features,
+native LightGBM heads, common target handling and the unchanged forecasting contract.
+No temporary predictor implementation or planned architecture replacement is introduced.
+
+### Step 2A. Provision LightGBM and implement target handling
+
+**Objective and implementation:** Present a concrete cross-boundary notice proposing
+the LightGBM version, optional engine `ml` extra, combined lock update and any native
+runtime prerequisites. Explain the macOS/Windows setup and compatibility implications;
+wait for explicit approval before those dependency changes or installations. Follow
+the shared uv workflow; do not separately install a second backend dependency copy.
+Keep persistence usable when the optional dependency is absent.
+
+Implement `models/targets.py` for both direct imbalance-price labels and
+`imbalance_price - spot_price`, reusing Step 1B eligibility and evidence. Relative
+labels require paired fitting-eligible price/spot rows. Reconstruction requires the
+exact delivery spot published by the historical/inference origin; a fitting-time spot
+label must not be reused as an origin-time feature. Define the reconstruction and
+missing-spot decision now; the actual fitted direct-price backup is integrated in 2C.
+Never invent a replacement spot price or silently turn a relative prediction into a
+direct price. Keep target mode and transformation identity explicit for later attribution.
+
+**Expected new engine files (2):** `models/targets.py`, `tests/test_targets.py`.
+Separately approved modifications are expected in root `pyproject.toml`,
+`requirements-dev.in`, generated `requirements-dev.lock`, and the engine-local
+`experiments/README.md` for setup instructions. Update shared setup documentation only
+if included in the approval. Preserve the original starter `requirements.txt`.
+
+**Verify:** Test independent direct/relative label eligibility, missing pairs, negative
+prices, reconstruction, exact publication equality, unavailable future spot and source
+lineage. Confirm native LightGBM import in the approved environment and the installed
+versions/lock match; no head fitting or training experiment is needed in this substep.
+Run package-local, unchanged engine and existing backend tests after dependency sync.
+Verify persistence import/use without LightGBM and report Windows/native-runtime checks
+that could not be performed rather than claiming both platforms work.
+
+**After this substep / deliverables:** Approved, reproducible dependency setup and tested
+permanent target utilities. No LightGBM predictor or learned heads are implemented yet.
+
+**Acceptance criteria:** Target transformations and evidence are correct, dependency
+changes are authorized and recorded, and existing engine/backend/official-tool
+integration remains verified through relevant tests. Missing dependency/native support
+fails clearly. Report outstanding platform checks and whether they block adoption.
+
+**Anticipated cross-boundary changes:** Required for the optional extra, combined input/
+lock, environment installation and possible native runtime. No application source or
+public interface change is proposed; the partner can continue with persistence. A
+roadmap or substep approval alone is not approval of an unspecified dependency change.
+
+### Step 2B. Implement the complete direct-price predictor
+
+**Objective and implementation:** Implement `LightGBMPredictor.fit(data, config=...)`
+and a frozen fitted implementation returning `ForecastResult` through unchanged
+`forecast(...)`. Use the native Booster API, small fixed-seed CPU configurations and
+fixed training iterations. No random validation split, automatic tuning, GPU requirement
+or early-stopping dependency. Later early stopping needs explicit earlier chronological
+assessment data. Start with direct price using the accepted 2A target utilities.
 
 Train five horizon-aware pooled boosters sharing Step 1 infrastructure: quantile
 objectives at 0.10, 0.50 and 0.90; one multiclass direction head with fixed class mapping
@@ -381,13 +465,8 @@ above spot + 50 or below spot − 50 EUR/MWh. Multiclass spike outputs supply th
 reported probabilities, ensuring their sum cannot exceed one. Per-head eligibility,
 class mapping and evidence are explicit. Quantile-0.5 targets the median-price metric.
 
-Implement both price target modes in the same `targets.py` path now. Start acceptance
-with direct price. Relative labels require paired fitting-eligible imbalance and spot;
-reconstruction requires delivery spot published by the inference origin. Fitting-time
-spot eligibility does not make that spot a valid historical feature. Before enabling
-relative inference, fit a direct-price backup using the same architecture for rows
-without usable delivery spot. Track which price path supplied each row. Never insert
-unpublished spot; compare full outputs and matched eligible subsets in Step 4.
+Relative label/reconstruction utilities already exist from 2A, but relative predictor
+inference remains disabled until the complete safe backup path is accepted in 2C.
 
 Keep P50 unchanged when resolving crossing quantiles initially: lower is the minimum
 of raw reconstructed P10 and P50, upper the maximum of raw reconstructed P90 and P50.
@@ -403,32 +482,89 @@ normal implementation of probability/uncertainty heads. Optional text stays blan
 until Step 3. Retain head/target/recipe and transformation identity privately for
 attribution; no new public result field is introduced.
 
-**Expected new files:** `models/{lightgbm,heads,targets}.py`,
-`tests/{test_lightgbm,test_targets,test_model_compatibility}.py`. Modify the package-local
-experiment adapter/guide to select this predictor explicitly. Existing exports, baseline
-implementation, CLI defaults and public signatures remain unchanged.
+**Expected new engine files (4):** `models/{lightgbm,heads}.py`,
+`tests/{test_lightgbm,test_model_compatibility}.py`. Extend `tests/test_targets.py`
+only for directly needed integration checks. Existing exports, baseline implementation,
+CLI defaults and public signatures remain unchanged. The experiment API already
+accepts a predictor; command-line model selection is handled in 2C.
 
 **Verify:** Unit tests cover every head, strict spike boundaries, partial/absent labels,
-class order, valid sums, negative prices, missing spot and backup lineage, reconstruction
-and crossing quantiles. Test single/batch equality, repeated prediction, detached caller
-data, fit-call guards and model-state fingerprints before/after prediction. Run both
-suites and full real-data validation/official scoring. Baseline and ML use identical
-public caller code; persistence must still import/run with LightGBM unavailable.
+class order, valid sums, negative prices, explicit fallback/error behavior and crossing
+quantiles. Test single/batch equality, repeated prediction, detached caller data,
+fit-call guards and model-state fingerprints before/after prediction. Run package-local,
+unchanged engine and backend suites. Exercise the complete direct-price result through
+export and the real unchanged validator/scorer on synthetic inputs. Baseline and ML
+must use identical public caller code; persistence still works without LightGBM.
+Full supplied-data validation and metric comparison are required in 2C.
 
-**After this step / deliverables:** A complete end-to-end LightGBM forecast, all numerical
-outputs for 40 steps, direct/relative target support, safe configuration/lineage and
-an official validation comparison with timing and baseline metrics.
+**After this substep / deliverables:** A complete direct-price LightGBM forecast with
+all required numerical outputs for 40 steps, safe fitting/inference lineage and
+application-contract compatibility evidence. No application activation is included.
 
-**Acceptance criteria:** On adequate supplied data, all five learned heads execute;
-fallbacks are limited to declared evidence gaps and reported. Full forecasts pass
-unchanged validation and compatibility checks. Report all four scores and costs;
-no improvement is assumed and promotion is not required for technical completion.
+**Acceptance criteria:** All five learned heads execute on adequate synthetic data;
+fallbacks are limited to declared evidence gaps and reported. The direct-price forecast
+passes official structural validation/scoring integration and existing compatibility
+checks, without refitting during prediction. No accuracy improvement is claimed.
 
-**Anticipated cross-boundary changes:** Issue a notice before LightGBM/version/native
-runtime installation or any shared environment/packaging change. Pin and document the
-approved setup in the engine-local guide; do not edit starter requirements or root
-packaging without approval. Application development can continue independently;
-application predictor selection remains separate coordinated work.
+**Anticipated cross-boundary changes:** None expected beyond the accepted 2A dependency
+setup. New dependency/version or interface requirements trigger another notice.
+Application predictor selection remains separate coordinated work.
+
+### Step 2C. Integrate relative inference and run full-data acceptance
+
+**Objective and implementation:** Enable the spot-relative mode in the same predictor,
+using 2A transformations and 2B heads. For rows without delivery spot available at the
+origin, use a separately fitted direct-price backup within the same architecture.
+Fit required components once; preserve both models' frozen state. Track which price
+path supplied each row and retain complete fitting/inference evidence for it. Do not
+introduce unpublished spot, mix incompatible price units or alter classifier label
+meanings with the price target mode. Keep the P50-preserving quantile constraint policy.
+
+Add explicit candidate/recipe selection to the package-local experiment command and
+guide while retaining persistence as default. Record target mode, per-head settings,
+seeds, fallback policy and component identity with safe experiment configuration so
+the selected run is reproducible. Keep richer transformation metadata private for
+Step 3 attribution; do not add public result fields or populate invented top drivers.
+
+Run full supplied-data chronological validation through unchanged official tools,
+comparing all four metrics, coverage, counts and initialization/inference costs against
+persistence on identical origins and outcomes. Exercise both target modes; report
+spot availability and backup usage. This establishes a complete measured candidate,
+not the broader target/feature tuning reserved for Step 4. Do not access test actuals
+or generate the final test submission reserved for Step 6.
+
+**Expected new engine files:** None planned. Modify `models/{lightgbm,heads,targets}.py`
+as required, extend their tests and `tests/test_model_compatibility.py`, and update
+`experiments/run.py`, `experiments/README.md` and `tests/test_experiment_contract.py`.
+Full-data artifacts remain in fresh ignored run directories.
+
+**Verify:** Test missing/unpublished spot, mixed primary/backup rows, both components'
+lineage, negative-price reconstruction and frozen state. Re-run package-local, unchanged
+engine and backend suites after final changes. Check experiment recipe recording,
+single/batch agreement, baseline behavior without LightGBM, and both complete target
+modes through real-data validation/scoring. Report exact metrics, matched counts,
+fallback usage and environment/platform limits. Structural validation alone does not
+establish leakage safety or prediction quality.
+
+**After this substep / deliverables:** The full Step 2 system: complete direct/relative
+LightGBM forecasting, safe backup behavior, reproducible experiment selection and
+official full-data comparison with the baseline. Step 3 explainability remains separate.
+
+**Acceptance criteria:** On adequate supplied data all five learned heads execute;
+any fallback is explicitly justified and traced. Both target modes produce complete
+valid horizons, and all four metrics/costs are reported honestly. Existing integration
+checks pass. No improvement is assumed, and model promotion is not required for
+technical completion. No application change or automatic activation occurs.
+
+**Anticipated cross-boundary changes:** None required within the existing contract.
+Application model/recipe selection and any additional dependency/native-runtime change
+need a notice and explicit approval in their respective workflow. The application can
+continue with persistence while these experiments are reviewed.
+
+The planned new engine-file total remains six: two in 2A, four in 2B and none in 2C.
+Existing files grow with integration and relevant tests. Each substep must report the
+standing cross-boundary and integration compatibility statuses and stop for review
+and explicit authorization before the next substep.
 
 ## Step 3. Add model contributions and meaningful top_drivers
 
@@ -540,9 +676,10 @@ attribution handling for retained changes only. No new framework is expected.
 
 **Verify:** Run controlled fold comparisons with fixed seeds, data and matched score
 rows. Test label purging, per-head subsets, missingness, fallback and hypothesis-specific
-invariance. Re-run both suites after retained code changes and attribution identities
-for the selected mode. Apply the predeclared promotion rule; report discarded ideas
-as well as retained improvements in safe experiment summaries.
+invariance. Run focused tests and affected consumer regressions after retained code
+changes, plus attribution identities for the selected mode. Apply the predeclared
+promotion rule; report discarded ideas as well as retained improvements in safe
+experiment summaries.
 
 **After this step / deliverables:** A measured configuration/feature comparison and
 selected candidate within the permanent LightGBM architecture, or evidence for retaining
@@ -595,7 +732,8 @@ cutoffs and horizon purging, deterministic temperatures/offsets and identity beh
 Change held-out/future outcomes and confirm earlier fits cannot change. Compare
 calibrated/uncalibrated pinball and both Brier criteria on identical rows, plus MAE
 and coverage. Verify sums, ordering, frozen state and attribution scope after transforms;
-run both suites and frozen full official validation.
+run relevant calibration, prediction, attribution and integration checks, plus frozen
+full official validation.
 
 **After this step / deliverables:** A frozen complete recipe, justified calibration
 choices and full validation comparison, with updated explanation semantics. Persistence
@@ -647,9 +785,10 @@ under existing feature/model/explainability modules and their internal tests. Co
 `experiments/README.md` and compatibility tests. No optimization edit is required when
 measurements show no worthwhile bottleneck; generated evidence stays ignored.
 
-**Verify:** Run both suites, repeated official validation, public caller compatibility,
-model-state fingerprints and safe logging checks. Compare optimized/reference features,
-predictions, category rankings and full lineage on boundaries and supplied samples.
+**Verify:** Run final engine acceptance and affected regression tests, required repeated
+official validation, public caller compatibility, model-state fingerprints and safe
+logging checks. Compare optimized/reference features, predictions, category rankings
+and full lineage on boundaries and supplied samples.
 Require zero test-validator errors and explain warnings. Inspect changed files for
 restricted values; check starter/input integrity, baseline import without LightGBM,
 and no test actual access. Report missing Windows/macOS/native-runtime checks honestly.
@@ -675,7 +814,7 @@ acceptance can proceed through the existing contract without rich explanation ac
 This planning task modifies only `docs/model-improvement-roadmap.md`. No source file,
 application file, dependency, test or training run is changed/executed by drafting.
 
-For implementation, obtain explicit authorization for one step (or one Step 1 substep)
+For implementation, obtain explicit authorization for one step (or one Step 1/2 substep)
 and any cross-boundary
 prerequisites. At completion, stop and provide scope, exact changed files, rationale,
 branch/base/HEAD, actual commands/results, dependency environment, private output

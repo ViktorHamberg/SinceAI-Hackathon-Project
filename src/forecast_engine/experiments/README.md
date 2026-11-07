@@ -2,11 +2,12 @@
 
 This adapter uses the existing fit/forecast/export contract and unchanged official
 validator/scorer. It does not replace `python -m forecast_engine validation` or change
-application integration. Only persistence is selected by this command initially.
-There is no tuning, ML dependency, model promotion or test-period scoring here.
+application integration. Persistence remains the default; optional direct and
+spot-relative LightGBM recipes require explicit selection. There is no tuning, model
+promotion or test-period scoring here.
 
-Use the existing Python 3.11+ environment and editable engine installation described
-in `docs/forecasting-engine.md`. Run from the repository root; all relative paths
+Use the shared Python 3.12 environment and editable engine installation described
+in `docs/python-environment.md` and `docs/forecasting-engine.md`. Run from the repository root; all relative paths
 resolve against the current directory. On Windows replace `.venv/bin/python` with
 `.venv\Scripts\python.exe`. No additional installation is required for this adapter.
 
@@ -80,7 +81,7 @@ run. Initialization failures can occur before a manifest exists. Original error 
 is suppressed because parsers and model failures can contain restricted values.
 Exit codes: 0 complete, 1 failed, 2 invalid CLI arguments. Retry in a fresh directory.
 
-## Future predictor selection through the unchanged contract
+## Custom predictors through the unchanged contract
 
 ```python
 from forecast_engine.experiments.run import run_experiment
@@ -99,6 +100,107 @@ future model hyperparameters/seeds in its immutable recipe implementation and ex
 manifest configuration deliberately when that model is approved. Recipe identifiers
 must never contain secrets or source values. The default remains `persistence-v1`.
 
+## Optional LightGBM models (Step 2)
+
+The approved engine extra pins `lightgbm==4.7.0`. The combined team input enables
+`.[ml]`, and the shared lock resolves SciPy and Narwhals as transitive dependencies.
+Use the same environment/sync workflow in `docs/python-environment.md`; do not install
+another copy through backend requirements. Existing numerical/backend pins are retained.
+The starter `requirements.txt` and public forecasting interfaces remain unchanged.
+
+On macOS, install the OpenMP runtime before importing the native library:
+
+```bash
+brew install libomp
+```
+
+On 64-bit Windows, use the wheel and install Microsoft's supported Visual C++ runtime
+if missing; source compilation, GPU and MPI are not required. See the
+[official LightGBM installation notes](https://pypi.org/project/lightgbm/4.7.0/).
+The native import has been verified on Apple Silicon; Windows execution still requires
+the partner's verification. A package installed without its native runtime is not a
+working ML setup. Confirm with the project interpreter:
+
+```text
+.venv/bin/python -c "import lightgbm; print(lightgbm.__version__)"
+```
+
+The direct predictor is explicitly selected through the same Python API:
+
+```python
+from forecast_engine import RunConfig, load_inputs, forecast
+from forecast_engine.models.lightgbm import LightGBMPredictor
+
+data = load_inputs("data/inputs.csv", spot_path="data/spot_nordpool.csv")
+fitted = LightGBMPredictor().fit(data, config=RunConfig.validation())
+result = forecast(fitted, data, origins=[RunConfig.validation().fit_cutoff_utc])
+```
+
+The experiment CLI selects the fixed recipes explicitly:
+
+```bash
+.venv/bin/python -m forecast_engine.experiments.run --model lightgbm-direct --output-dir baseline_output/engine/experiments/direct-01
+.venv/bin/python -m forecast_engine.experiments.run --model lightgbm-relative --output-dir baseline_output/engine/experiments/relative-01
+```
+
+Use a fresh persistence run on the same period/data for comparison. Both ML modes
+also support `--period fold-1` and `--period fold-2`. The original engine CLI and
+application keep their existing persistence defaults. The v1 recipe is
+30 fixed rounds, 15 leaves, minimum 20 rows per leaf, learning rate 0.05, L2 1.0,
+seed 2026 and one CPU thread. All five pooled heads share the same ordered features,
+including horizon. `TreeRecipe` in `models/heads.py` permits explicit small test recipes.
+
+In direct mode, each price quantile uses imbalance-price labels. Direction classes are
+up/down/none; spike classes are high/low/neither with strict ±50 EUR/MWh labels.
+There must be at least 40 eligible examples per task and all classifier classes.
+Insufficient evidence raises `MissingEvidenceError`; no partial/silent persistence
+fallback occurs. Select persistence explicitly instead.
+
+`LightGBMPredictor(target_mode="spot_relative")` trains price quantiles on eligible
+imbalance-minus-spot label pairs. It also fits three separate direct-price quantile
+heads on independently eligible imbalance labels, once in the same fit call. Direction
+and spike classifiers keep their original labels, masks and class order. At inference,
+only a delivery spot published by that origin can reconstruct the relative quantiles.
+Missing/unpublished spot selects the fitted direct-price heads for that row; it never
+uses a future value or treats a spread as an absolute price. Mixed horizons are allowed.
+A missing backup is an explicit error. Quantile constraints are applied after choosing
+the price path and reconstructing prices, preserving P50 including negative prices.
+
+Fitting projects inputs to the declared feature sources plus required labels and removes
+rows not published by the fitting cutoff before building historical examples. Every
+historical origin still passes through the unchanged as-of builder; fitting-cutoff
+availability alone never makes a historical feature usable. Inference projects to
+declared sources and, for relative mode, the reconstruction spot source. No origin cache
+or inferred publication time is introduced.
+
+Fitted heads hold private immutable model strings, not training frames or mutable
+Boosters. Prediction loads temporary native models and does not fit. These strings
+contain learned numbers and must not be printed, exported or published. Full label
+and actual historical feature-use evidence is retained separately in fitting provenance.
+If a prediction uses only deterministic/missing features, its evidence references the
+frozen fitted model's complete lineage. Per-head source classes and counts remain
+explicit; no probabilities are invented for absent classes.
+
+P50 is preserved: P10 is clamped down to P50 if needed and P90 up to P50. Independent
+raw quantiles can therefore collapse the interval; tests verify this explicit policy.
+There is no calibration or `top_drivers` attribution yet. The fitted record stores
+target/registry/recipe/policy identity privately for the later attribution step, which
+can recover raw head predictions from the same model strings. No new result fields
+or application source changes are included. Each relative prediction records a named,
+value-free dependency for every step identifying the relative or direct-backup path.
+Offset evidence remains distinct from learned feature evidence. Fitting provenance
+separately identifies relative-label pairs and direct-backup labels.
+
+The manifest records `model_configuration` with target mode, registry and quantile
+policy, minimum rows, fallback policy, and each component's identity/hash, feature
+order, objective/classes, all explicit native parameters, rounds and native version.
+`price_paths` records only counts: delivery spot available/unavailable, primary-relative,
+direct-backup and direct rows. Relative path totals must match availability and the
+complete forecast row count. These diagnostics contain no spot values or fitted model
+strings. Compare all four official metrics, coverage and per-task matched counts along
+with `timings.fit` and `timings.predict`; a faster or lower-MAE run alone does not
+establish overall superiority.
+
 Run the package-local and existing engine tests before a review handoff:
 
 ```bash
@@ -106,6 +208,9 @@ Run the package-local and existing engine tests before a review handoff:
 .venv/bin/python -W error::FutureWarning -m unittest discover -s tests -v
 ```
 
-Full-data baseline acceptance is a separate explicit run of the first command in this
-guide, compared against recorded official metrics/counts. No new forecast model or
-accuracy improvement is claimed by completing that acceptance.
+Full-data acceptance compares fresh persistence, direct and relative runs on identical
+origins, fitting boundaries, source hashes and scoring-actuals hashes. Keep reports in
+ignored run directories and report all metric deltas, coverage, matched counts, spot
+availability and backup use. Do not promote a model automatically. Windows execution
+and broader feature/recipe tuning require their own verification. Step 3 attribution
+and the final test submission are separate authorized steps.

@@ -9,5 +9,8 @@ description = "Importable Finnish imbalance-price forecasting engine"
 requires-python = ">=3.11"
 dependencies = ["pandas>=2.2,<4", "numpy>=1.26,<3"]
 
+[project.optional-dependencies]
+ml = ["lightgbm==4.7.0"]
+
 [tool.setuptools.packages.find]
 where = ["src"]
