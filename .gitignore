@@ -11,8 +11,20 @@ actuals_validation.csv
 actuals_test.csv
 starter_package*.zip
 
-# Generated baseline output
+# Generated forecasts, evaluation and application evidence
 baseline_output/
+results/
+
+# Python test and coverage output
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+
+# Frontend dependencies and generated output
+node_modules/
+frontend/dist/
+frontend/coverage/
 
 # Python environments and bytecode
 .venv/
