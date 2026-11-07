@@ -1,0 +1,30 @@
+:root {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  color: #303432;
+  background: #f4f3ef;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  --ink: #303432;
+  --muted: #60665f;
+  --paper: #fff;
+  --line: #d5d7d0;
+  --control-line: #7c8178;
+  --orange: #e5a033;
+  --orange-wash: #fff4de;
+}
+
+* { box-sizing: border-box; }
+body { margin: 0; }
+button, input { font: inherit; }
+a[href], button, summary, select, label[for], [role="button"] { cursor: pointer; }
+button:disabled, button[aria-disabled="true"] { cursor: not-allowed; }
+:focus-visible { outline: 3px solid #945209; outline-offset: 4px; }
+h1, h2, p { margin-top: 0; }
+time, .number, code { font-variant-numeric: tabular-nums; }
+code { font-family: ui-monospace, "Cascadia Code", Consolas, monospace; font-size: .85rem; }
+button { min-height: 44px; min-width: 44px; border: 1px solid var(--control-line); border-radius: 2px; padding: .65rem 1rem; font-size: .875rem; font-weight: 600; line-height: 1.4; background: var(--paper); color: var(--ink); }
+button:hover:not([aria-disabled="true"]):not(:disabled) { background: #e9e9e2; text-decoration: underline; text-underline-offset: 3px; }
+button:active:not([aria-disabled="true"]):not(:disabled) { background: #d9dcd3; box-shadow: inset 0 0 0 2px var(--ink); }
+button:disabled, button[aria-disabled="true"] { border-style: dashed; color: #60665f; background: #efefea; }
+.visually-hidden { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0; }
