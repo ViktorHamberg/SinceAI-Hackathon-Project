@@ -1,6 +1,6 @@
 # First forecasting engine: consolidated implementation plan
 
-**Status: plan approved; Steps 1–4 implemented and verified. Steps 5–6 await separate
+**Status: plan approved; Steps 1–5 implemented and verified. Step 6 awaits separate
 explicit approval.**
 
 This plan combines the resolved Wayfinder map and the four resolved decision-ticket
@@ -443,7 +443,7 @@ SHA-256 hashes, fitting boundaries, provenance, counts, runtime and exit codes.
 **Expected new files:** `cli.py`, `__main__.py`, `evaluation.py`,
 `tests/test_cli.py`, and `docs/forecasting-engine.md`.
 
-**Proposed command shape**, after documented package setup, from the repo root:
+**Implemented command shape**, after documented package setup, from the repo root:
 
 ```text
 python -m unittest discover -s tests
@@ -451,7 +451,7 @@ python -m forecast_engine validation --data-dir data --starter-dir . --output-di
 python -m forecast_engine test --data-dir data --starter-dir . --output-dir baseline_output/engine/test
 ```
 
-These engine commands do not exist yet. Validation invokes `make_templates.py` for its
+Validation invokes `make_templates.py` for its
 own origins/template, fits at the validation cutoff, predicts, exports, validates and
 scores. Test fits separately at its cutoff, uses the supplied test template, exports
 and validates; it never evaluates test outcomes. Prediction itself never calls the
@@ -463,6 +463,78 @@ official tool invocations outside the prediction core.
 
 **After this step:** Documented local execution, separate validation/test outputs and
 audit evidence, ready for full-data acceptance.
+
+### Step 5 result and verification
+
+Added `cli.py`, `__main__.py`, `evaluation.py`, `tests/test_cli.py` and
+`docs/forecasting-engine.md`; extended import-side-effect coverage for the new modules.
+The existing model, fitting/prediction, availability, export algorithms, public core
+interfaces and original starter files were not modified. No dependency was added.
+
+The module CLI implements the two commands above with `--starter-dir`, `--data-dir`,
+`--output-dir`, `--inputs-file` and `--spot-file`; validation additionally accepts
+`--actuals-file`. Explicit relative paths resolve from the caller's directory, while
+omitted data/output paths derive from starter-dir. Defaults use CSV inputs and ignored
+baseline_output/engine/MODE storage. Require a new/empty output directory to prevent
+stale results and accidental overwriting of starter files. Repeat or failed runs use
+a fresh output path rather than silently reusing previous artifacts.
+
+Validation invokes the unchanged generator for 7 September–4 October, checks all
+canonical origins/template identifiers, fits once at the approved validation cutoff,
+calls the shared in-memory API/export, then invokes the official validator and scorer.
+The first actuals-byte read/hash occurs only after prediction/export/validation; actuals
+never enter the forecasting API. Test copies/verifies the supplied canonical 673-origin
+template, fits separately at the approved test cutoff, exports 26,920 rows and invokes
+only the validator. It does not discover, hash or evaluate test actuals. Known actuals
+filenames are rejected as forecasting sources before source fingerprinting, and known
+test actuals cannot be passed as validation scoring inputs.
+
+The local adapter saves forecast/templates, official aggregate score files for validation,
+safe JSON tool reports and run_manifest.json. Manifests record accepted arguments,
+resolved paths, exact commands/exit codes, timestamps/runtime, Python/dependency versions,
+Git commit/dirty-state digest when available, package source fingerprints, consumed
+input/relevant starter hashes, run configuration, counts, safe fitting lineage digest
+and per-origin observation timestamps/availability/ages. Source/input integrity is
+checked again before completion. No raw source/forecast values, fitted numbers, environment
+variables or raw exception/subprocess output are included in logs/manifests. Official
+diagnostics retain only fixed-format statuses, counts and finding codes. Failed runs
+save safe failure stage/type metadata and return nonzero, without claiming completion.
+
+The editable installation command `python -m pip install --no-cache-dir
+--no-build-isolation -e .` was rerun successfully in the existing environment. Package
+and both subcommand help outputs were verified, as were the real official scripts'
+argument names. See docs/forecasting-engine.md for setup, paths, artifacts, limitations
+and failure/retry instructions; no original requirements were changed.
+
+Verification on Python 3.12.14 / pandas 2.2.3 / NumPy 2.3.5:
+
+```bash
+.venv/bin/python -W error::FutureWarning -m unittest discover -s tests -v
+.venv/bin/python -m compileall -q src/forecast_engine tests
+git diff --check
+```
+
+All **74 tests passed**, including the existing 64 tests. The ten new tests cover:
+
+- An 80-row synthetic validation run with direct Python API agreement, the correct
+  validation cutoff, real unchanged validator/scorer subprocesses and aggregate score
+  artifacts. Only template generation/expected-origin selection are shortened by a
+  private test fixture, not a production CLI flag.
+- The real unchanged template generator's complete 672-origin validation grid and
+  canonical identifiers.
+- Synthetic test-mode cutoff/actuals separation and a real `python -m forecast_engine
+  test` process from another working directory using space-containing absolute paths,
+  the complete 673-origin template and just one synthetic fitting day. It exported
+  26,920 rows and passed the real unchanged validator. This is a small-data command/path
+  integration check, not challenge-data acceptance.
+- Missing files, failed validator/scorer processes, unknown actuals options, known
+  actuals-source guards, nonempty output protection, defaults, failure manifests and
+  redaction of synthetic private-value/secret diagnostics. No challenge actuals were read.
+
+Fresh environment provisioning, Windows execution, real Parquet and challenge-data
+performance remain unverified. No expensive full-data acceptance, repeated full-data
+run or independent notebook-parity experiment was performed. Step 6 remains separately
+authorized work. The review handoff includes local candidate fingerprints and checks.
 
 ## Step 6. Run full acceptance and document the result
 
@@ -521,7 +593,6 @@ changed files and actual test results, then stop. Each subsequent step requires
 explicit user approval before work begins. If a step reveals a material scope change,
 explain it before proceeding. Do not commit, push or merge unless explicitly requested.
 
-Steps 1–4 are complete. Stop here until the user explicitly approves Step 5. In-memory
-fitting/prediction, optional CSV export, availability/provenance and focused tests exist;
-the CLI and full-data acceptance workflow are not implemented. No commit, push, or
-merge is authorized.
+Steps 1–5 are complete. Stop here until the user explicitly approves Step 6. The shared
+engine, optional export and reproducible CLI workflow exist; full-data acceptance has
+not been performed. No commit, push, or merge is authorized.

@@ -36,6 +36,9 @@ class ImportTests(unittest.TestCase):
             import forecast_engine.models.persistence
             import forecast_engine.engine
             import forecast_engine.submission
+            import forecast_engine.cli
+            import forecast_engine.evaluation
+            import forecast_engine.__main__
             assert "pandas" not in sys.modules
             assert "numpy" not in sys.modules
             assert len(forecast_engine.FORECAST_COLUMNS) == 13
