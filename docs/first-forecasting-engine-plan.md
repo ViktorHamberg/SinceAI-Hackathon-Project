@@ -1,6 +1,6 @@
 # First forecasting engine: consolidated implementation plan
 
-**Status: plan approved; Steps 1–3 implemented and verified. Steps 4–6 await separate
+**Status: plan approved; Steps 1–4 implemented and verified. Steps 5–6 await separate
 explicit approval.**
 
 This plan combines the resolved Wayfinder map and the four resolved decision-ticket
@@ -343,6 +343,96 @@ validator as a new scoring/validation tool. No silent horizon dropping or repair
 **After this step:** An application can fit once, call prediction directly and receive
 valid in-memory results and provenance, with CSV export available separately.
 
+### Step 4 result and verification
+
+Implemented `engine.py`, `submission.py`, `tests/test_prediction.py`, and
+`tests/test_submission.py`. Completed `FittedPersistence.predict(...)` using the existing
+signature; shared the existing latest-observation selector between calibration and
+prediction. Extended OriginProvenance with a defaulted `source_ages` mapping, populated
+by the existing provenance builder. Updated exports, import tests and the earlier test
+that asserted prediction was unavailable during Step 3. No fitting algorithm, original
+starter file, dependency, CLI or official tool was changed or added.
+
+Public application use:
+
+```python
+from forecast_engine import forecast, export_forecasts
+
+# fitted and inputs come from the existing fit/data interfaces.
+result = fitted.predict(inputs, origins=[origin])
+# Or dispatch any fitted predictor through the model-independent checked wrapper:
+batch = forecast(fitted, inputs, origins=[origin, later_origin])
+# Export only when explicitly requested; prediction itself has no filesystem work:
+export_forecasts(batch.forecasts, output_path, origins=[origin, later_origin])
+```
+
+Requests must be nonempty sequences of unique aware full-hour datetimes. Explicit
+offsets normalize to UTC; outputs and inference records sort by origin and step.
+Repeated requests for the same UTC origin are rejected rather than silently deduplicated.
+Each origin yields all 40 quarter-hours, or a clear component/origin/step error; no
+partially completed result is returned. Direct and wrapper calls use the same checks.
+
+Prediction follows the unchanged notebook's build_forecast(): latest usable historical
+imbalance value, three-day search then all-earlier fallback, no new staleness limit,
+p50 rounded to four decimals, lower offset min(q10, 0), upper offset max(q90, 0), and
+rounded p10/p90. Negative prices are retained. No fitting, probability adaptation or
+data-dependent updating of statistics occurs during inference. Published later-period
+observations can supply lags, but observed imbalance deliveries later than the origin
+are excluded. This baseline does not consume spot data during inference.
+
+The result retains the same fitted provenance separately from per-origin actual
+observation evidence, source availability, and delivery-relative age. All fitted
+dependencies must have been usable by the fitting cutoff and the requested origin;
+backdated use of a later fit is rejected. All inference dependencies are checked too.
+No raw observation prices are retained in provenance or printed. The generic age
+mapping can be negative for already-published future-delivery feature inputs; the
+baseline's actual historical-observation age is nonnegative.
+
+`validate_forecasts(frame, origins=...)` enforces the schema, finite required values,
+quantile ordering, probability bounds/sums, exact keys, full horizons, sorting, UTC
+arithmetic and optional cutoff rules. It performs no repair. It is an internal/public
+table-contract helper, not a replacement for the official validator. Pass requested
+origins when checking a caller-edited table to detect an entirely removed origin;
+without them, completeness is checked for all origins present.
+
+`export_forecasts(frame, path, origins=...)` copies and validates the table, serializes
+UTF-8 comma CSV with no index, six-decimal numbers and whole-second UTC Z timestamps,
+and re-parses the serialized content before any write. Empty optional values become
+empty cells; populated timestamps and text (including literal NA/nan, Unicode, quoting
+and embedded newlines) survive. In-memory probability sums use numerical precision;
+after six-decimal serialization the official 0.001 tolerance is allowed without
+renormalizing values. Export then atomically replaces the destination with a temporary
+file in the same directory; validation/serialization failures preserve an existing
+target, and replacement failures clean up the temporary file.
+
+Intentional differences from the notebook remain the approved blank optional output
+fields plus explicit full-result, source-availability and dependency checks. Full
+calibration/inference provenance is separate from the official table. No additional
+statistical method or forecast improvement is claimed.
+
+Verification on Python 3.12.14 / pandas 2.2.3 / NumPy 2.3.5:
+
+```bash
+.venv/bin/python -W error::FutureWarning -m unittest discover -s tests -v
+.venv/bin/python -m compileall -q src/forecast_engine tests
+git diff --check
+```
+
+All **64 tests passed**, including the existing 44 tests (with the obsolete Step 3
+NotImplementedError expectation removed). The 20 new tests cover single/batch and
+generic-model calls, no refitting or input/state mutation, publication equality and
+unavailable-row invariance, old/recent/missing observation selection, negative prices,
+quantile clipping and rounding, pre-fit requests, DST-repeated local hours, malformed
+and missing keys/values, complete horizons, nullable types and optional metadata,
+CSV serialization/round trips, invalid serialized output, and atomic replacement
+failure cleanup. No challenge inputs/actuals were read for this step; all new tests
+use synthetic values and temporary output paths.
+
+The official validator/scorer were not invoked, and there were no full validation or
+test-period runs. Windows, actual Parquet and full-data performance remain unverified.
+These remain for their approved later verification scopes. Stop pending explicit
+Step 5 approval; no command-line workflow exists yet.
+
 ## Step 5. Add the reproducible local command workflow
 
 **Implement:** Thin validation/test CLI commands using the same engine API, explicit
@@ -431,7 +521,7 @@ changed files and actual test results, then stop. Each subsequent step requires
 explicit user approval before work begins. If a step reveals a material scope change,
 explain it before proceeding. Do not commit, push or merge unless explicitly requested.
 
-Steps 1–3 are complete. Stop here until the user explicitly approves Step 4. The package
-foundation, data adapters, historical selection, frozen baseline fitting, dependency
-evidence and focused tests exist; there is no actual prediction, export, or engine CLI
-yet. No commit, push, or merge is authorized.
+Steps 1–4 are complete. Stop here until the user explicitly approves Step 5. In-memory
+fitting/prediction, optional CSV export, availability/provenance and focused tests exist;
+the CLI and full-data acceptance workflow are not implemented. No commit, push, or
+merge is authorized.
