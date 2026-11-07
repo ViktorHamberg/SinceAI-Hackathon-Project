@@ -95,3 +95,17 @@ commands in `README.md` and state explicitly what could not be verified. Keep ch
 focused and reversible. Agent skills: `.agents/README.md`; for Wayfinder tickets read
 `docs/agents/issue-tracker.md`, and for engineering skills read `docs/agents/domain.md`
 when those files exist.
+
+## Independent review before pushing
+
+Use the separate-chat review workflow in `REVIEW.md` before each push. After an
+approved implementation step, provide a review handoff with its scope, changed files,
+rationale, actual verification results and known limitations.
+
+When asked to perform a review, read `REVIEW.md` and follow its reviewer instructions.
+This review role applies only to review tasks; it does not make implementation tasks
+read-only. Obtain an `APPROVE` verdict for the current changes before pushing. Changes
+made after review require review of the affected changes again.
+
+A review verdict does not authorize committing, pushing, merging, or starting the next
+implementation step. Those actions still require the user's explicit instructions.
