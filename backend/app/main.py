@@ -4,13 +4,13 @@ import asyncio
 from collections.abc import Callable
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.exceptions import ResponseValidationError
 from fastapi.responses import JSONResponse
 
 from .config import ForecastConfig
 from .forecast_service import ForecastService, prepare_forecast
-from .schemas import ForecastResponse
+from .schemas import ForecastResponse, OriginsResponse, parse_origin
 
 
 def create_app(
@@ -50,7 +50,7 @@ def create_app(
 
     application = FastAPI(
         title="Finnish imbalance forecast API",
-        description="Local historical replay API. One cached validation-origin forecast; not a live feed.",
+        description="Local historical replay API. Cached validation-origin forecasts; not a live feed.",
         version="1.0", lifespan=lifespan, debug=False, redoc_url=None,
     )
     application.state.forecast_service = None
@@ -71,8 +71,6 @@ def create_app(
         return JSONResponse(status_code=500, content={"detail": "Forecast response is unavailable."})
 
     def ready_service(request: Request) -> ForecastService:
-        if request.query_params:
-            raise HTTPException(status_code=400, detail="This endpoint accepts no query parameters.")
         service = request.app.state.forecast_service
         if service is None:
             raise HTTPException(status_code=503, detail="Forecast service is not ready.")
@@ -80,18 +78,42 @@ def create_app(
 
     @application.get("/api/health", summary="Check forecast readiness")
     async def health(request: Request) -> dict[str, str]:
+        if request.query_params:
+            raise HTTPException(status_code=400, detail="This endpoint accepts no query parameters.")
         ready_service(request)
         return {"status": "ready"}
+
+    @application.get("/api/origins", response_model=OriginsResponse,
+                     summary="List cached historical forecast origins")
+    async def get_origins(request: Request):
+        if request.query_params:
+            raise HTTPException(status_code=400, detail="This endpoint accepts no query parameters.")
+        return ready_service(request).origins_response()
 
     @application.get(
         "/api/forecast", response_model=ForecastResponse,
         summary="Retrieve the cached historical forecast",
-        responses={400: {"description": "Query parameters are not supported yet."},
+        responses={400: {"description": "Invalid origin or unsupported query parameters."},
+                   404: {"description": "Origin is not in the prepared selection."},
                    503: {"description": "Forecast service is not ready."},
                    500: {"description": "Forecast response is unavailable."}},
     )
-    async def get_forecast(request: Request):
-        return ready_service(request).response()
+    async def get_forecast(request: Request, origin: str | None = Query(
+        default=None, description="Full-hour UTC origin from /api/origins. Omit for the default forecast.",
+    )):
+        if set(request.query_params) - {"origin"} or len(request.query_params.getlist("origin")) > 1:
+            raise HTTPException(status_code=400, detail="Only one origin query parameter is supported.")
+        service = ready_service(request)
+        if origin is None:
+            return service.response()
+        try:
+            selected = parse_origin(origin)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Origin must be a full-hour UTC timestamp.") from None
+        try:
+            return service.response(selected)
+        except KeyError:
+            raise HTTPException(status_code=404, detail="Origin is not in the prepared selection.") from None
 
     return application
 

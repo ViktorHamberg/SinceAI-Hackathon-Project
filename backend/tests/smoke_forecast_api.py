@@ -20,6 +20,8 @@ from urllib.request import ProxyHandler, build_opener
 from backend.app.config import ForecastConfig
 from backend.app.forecast_service import prepare_forecast
 from backend.app.main import create_app
+from backend.app.schemas import utc_text
+from urllib.parse import urlencode
 
 
 def _require(condition: bool) -> None:
@@ -99,13 +101,32 @@ def main(argv=None) -> int:
             payload = json.loads(raw)
             _require(payload == service.response())
             frame = service._result.forecasts  # Verification only, never an HTTP field.
-            _require(len(payload["points"]) == len(frame) == 40)
-            for point, row in zip(payload["points"], frame.itertuples(index=False)):
-                for name in ("forecast_origin_utc", "delivery_start_utc"):
-                    _require(pd.Timestamp(point[name]) == getattr(row, name))
-                _require(point["step"] == row.step)
-                for name in ("p10", "p50", "p90", "p_up", "p_down", "p_none", "p_spike_high", "p_spike_low"):
-                    _require(point[name] == getattr(row, name))
+            catalog = json.loads(get("/api/origins"))
+            _require(catalog == service.origins_response())
+            _require(catalog["origins"] == [utc_text(origin) for origin in config.origins])
+            _require(catalog["default_origin_utc"] == payload["forecast_origin_utc"])
+            _require(len(frame) == len(config.origins) * 40)
+            request_seconds = []
+            for origin in config.origins:
+                path = "/api/forecast?" + urlencode({"origin": utc_text(origin)})
+                requested = time.perf_counter()
+                body = get(path)
+                request_seconds.append(time.perf_counter() - requested)
+                selected = json.loads(body)
+                _require(selected == service.response(origin))
+                for key in ("schema_version", "run_id", "model_id", "predictor_id", "engine_revision",
+                            "generated_at_utc", "fit_cutoff_utc"):
+                    _require(selected[key] == catalog[key])
+                rows = frame.loc[frame["forecast_origin_utc"].eq(origin)]
+                _require(len(selected["points"]) == len(rows) == 40)
+                for point, row in zip(selected["points"], rows.itertuples(index=False)):
+                    for name in ("forecast_origin_utc", "delivery_start_utc"):
+                        _require(pd.Timestamp(point[name]) == getattr(row, name))
+                    _require(point["step"] == row.step)
+                    for name in ("p10", "p50", "p90", "p_up", "p_down", "p_none", "p_spike_high", "p_spike_low"):
+                        _require(point[name] == getattr(row, name))
+                _require("spot_price" not in body and "dependencies" not in body)
+                _require(get(path) == body)
             _require("spot_price" not in raw and "dependencies" not in raw)
             for _ in range(3):
                 _require(json.loads(get("/api/forecast")) == payload)
@@ -113,14 +134,19 @@ def main(argv=None) -> int:
             _require(reads == source_paths)
             _require("swagger-ui" in get("/docs"))
             schema = json.loads(get("/openapi.json"))
-            _require(set(schema["paths"]) == {"/api/forecast", "/api/health"})
-            get("/api/forecast?origin=2026-09-07T00:00:00Z", 400)
+            _require(set(schema["paths"]) == {"/api/forecast", "/api/health", "/api/origins"})
+            get("/api/forecast?origin=2026-09-07T00:00:00Z", 404)
+            get("/api/forecast?origin=invalid", 400)
             get("/data/spot_nordpool.csv", 404)
         stage = "input integrity"
         _require(before == [hashlib.sha256(path.read_bytes()).hexdigest() for path in source_paths])
         report = {
             "status": "pass", "transport": "HTTP over ephemeral 127.0.0.1 port",
             "forecast_rows": len(frame), "fit_calls": 1, "predict_calls": 1,
+            "forecast_origins": len(config.origins), "cached_json_bytes": service.cached_json_bytes,
+            "forecast_table_bytes": int(frame.memory_usage(index=True, deep=True).sum()),
+            "memory_scope": "Serialized cache and forecast table only; excludes fitted state and provenance.",
+            "selection_HTTP_max_seconds": round(max(request_seconds), 4),
             "source_csv_reads": len(reads), "actuals_reads": 0,
             "required_values_match_engine": True, "repeated_HTTP_response_equal": True,
             "input_hashes_unchanged": True, "docs_and_openapi": "pass",

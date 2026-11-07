@@ -41,6 +41,7 @@ def main(argv=None) -> int:
             service = prepare_forecast(config)
         response = service.response()
         frame = service._result.forecasts  # Verification only; never exposed to app consumers.
+        frame = frame.loc[frame["forecast_origin_utc"].eq(service.default_origin_utc)]
         assert len(frame) == len(response["points"]) == 40
         for point, row in zip(response["points"], frame.itertuples(index=False)):
             for name in ("forecast_origin_utc", "delivery_start_utc"):

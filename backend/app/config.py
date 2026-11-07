@@ -1,7 +1,14 @@
 """Explicit local input paths; historical fitting boundaries belong to the engine."""
 
 from dataclasses import dataclass, field
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
+
+from forecast_engine import RunConfig
+
+DEFAULT_ORIGIN = datetime(2026, 9, 6, 21, tzinfo=timezone.utc)
+DEFAULT_ORIGINS = tuple(DEFAULT_ORIGIN + timedelta(hours=hours) for hours in (0, 1, 6, 24, 168, 648))
+MAX_CACHED_ORIGINS = 6
 
 
 @dataclass(frozen=True, slots=True)
@@ -15,6 +22,7 @@ class ForecastConfig:
 
     inputs_path: Path = field(repr=False)
     spot_path: Path = field(repr=False)
+    origins: tuple[datetime, ...] = DEFAULT_ORIGINS
 
     def __post_init__(self) -> None:
         for name in ("inputs_path", "spot_path"):
@@ -24,6 +32,20 @@ class ForecastConfig:
             object.__setattr__(self, name, path)
         if self.inputs_path == self.spot_path:
             raise ValueError("Input series and spot data require separate files.")
+        if not isinstance(self.origins, tuple) or not 1 <= len(self.origins) <= MAX_CACHED_ORIGINS:
+            raise ValueError("Configure between one and six forecast origins.")
+        normalized = []
+        for origin in self.origins:
+            if not isinstance(origin, datetime) or origin != origin or origin.utcoffset() is None:
+                raise ValueError("Forecast origins require aware datetimes.")
+            origin = origin.astimezone(timezone.utc)
+            if (origin.minute or origin.second or origin.microsecond or getattr(origin, "nanosecond", 0)
+                    or not RunConfig.validation().fit_cutoff_utc <= origin < RunConfig.test().fit_cutoff_utc):
+                raise ValueError("Forecast origins must be full hours within the validation period.")
+            normalized.append(origin)
+        if len(set(normalized)) != len(normalized):
+            raise ValueError("Forecast origins must be unique.")
+        object.__setattr__(self, "origins", tuple(sorted(normalized)))
 
     @classmethod
     def from_data_dir(cls, data_dir: str | Path | None = None) -> "ForecastConfig":

@@ -1,20 +1,22 @@
 # Backend: historical forecast service and local HTTP API
 
-The application service prepares one genuine engine forecast and retains a safe JSON
-response. It uses the existing persistence predictor, not an improved ML model.
-Step 1B adds FastAPI endpoints around the tested service. A frontend is a later step.
+The application service fits once and batch-prepares six genuine historical forecasts,
+retaining safe JSON responses for selection through the local API. It uses the existing
+persistence predictor, not an improved ML model. The existing frontend still displays
+the default forecast; the browser origin selector belongs to Step 3B.
 
 ## Files and responsibilities
 
 | File | Responsibility |
 |---|---|
-| `app/config.py` | Explicit local source paths; defaults derive from this checkout. |
+| `app/config.py` | Private source paths and a bounded, validated selection of origins. |
 | `app/forecast_service.py` | Load, fit once, predict once, retain the result and serve cached JSON. |
 | `app/schemas.py` | Validate the forecast and serialize only approved response fields. |
 | `app/main.py` | Own FastAPI startup/shutdown, readiness and cached forecast routes. |
 | `requirements.txt` | Pin the tested HTTP runtime, serialization stack and test client. |
 | `tests/test_forecast_service.py` | Synthetic correctness, lifecycle, privacy and portability checks. |
 | `tests/test_forecast_api.py` | HTTP contract, lifecycle, error safety and concurrent retrieval checks. |
+| `tests/test_origin_selection.py` | Multi-origin caching, selection, shared identity, query validation and overlapping deliveries. |
 | `tests/smoke_forecast.py` | Explicit real-data acceptance check with value-free output. |
 | `tests/smoke_forecast_api.py` | Start a temporary loopback server and verify real HTTP responses against the engine. |
 
@@ -26,10 +28,10 @@ The backend is imported from the repository root, not separately installed.
 
 For ongoing team development, use the shared
 [uv environment workflow](../docs/python-environment.md), including its verification
-status. It installs engine and backend together with one sync command; the pip examples
-below remain the original setup reference. No separate backend environment is needed.
+status. It installs engine and backend together with one committed lock. No separate
+backend environment or separate dependency installation is needed.
 
-Use the existing Python 3.11+ environment and editable engine installation described in
+Use the shared Python 3.12 environment and editable engine installation described in
 [the engine guide](../docs/forecasting-engine.md). Do not share `.venv` directories
 between machines. Both teammates need their own authorized local challenge data.
 Do not copy datasets through GitHub.
@@ -45,7 +47,8 @@ The preparation service itself performs no file writes or network requests.
 Run commands from the repository root. Windows PowerShell:
 
 ```powershell
-.\.venv\Scripts\python.exe -m pip install -r backend/requirements.txt
+uv pip sync --python .venv requirements-dev.lock
+uv pip check --python .venv
 .\.venv\Scripts\python.exe -W error::FutureWarning -m unittest discover -s backend/tests -v
 .\.venv\Scripts\python.exe -W error::FutureWarning -m backend.tests.smoke_forecast --data-dir data
 ```
@@ -53,13 +56,14 @@ Run commands from the repository root. Windows PowerShell:
 macOS:
 
 ```bash
-.venv/bin/python -m pip install -r backend/requirements.txt
+uv pip sync --python .venv requirements-dev.lock
+uv pip check --python .venv
 .venv/bin/python -W error::FutureWarning -m unittest discover -s backend/tests -v
 .venv/bin/python -W error::FutureWarning -m backend.tests.smoke_forecast --data-dir data
 ```
 
 The synthetic suite needs no challenge data and creates only temporary synthetic
-files. Install `backend/requirements.txt` first for the HTTP tests (commands below).
+files. Synchronize the shared lock first if dependencies changed after a pull.
 The Step 1A service tests can still run without HTTP dependencies using
 `python -m unittest backend.tests.test_forecast_service -v` in the engine environment.
 The smoke command explicitly uses local data and prints a JSON check report
@@ -87,8 +91,8 @@ serialized = service.response_json()
 Importing these modules performs no input loading, fitting, heavy numeric imports,
 printing or external work. Calling `prepare_forecast` loads sources, fits with
 `RunConfig.validation()`, and calls public `forecast(...)` for
-`2026-09-06T21:00:00Z`. Fitting labels end before that origin, with publication no
-later than the cutoff. The engine enforces historical availability; actual outcomes
+the configured origins in one batch. Fitting labels end before `2026-09-06T21:00:00Z`,
+with publication no later than the cutoff. The engine enforces historical availability; actual outcomes
 are never supplied to the service. These are historical forecasts, not live data.
 
 Preparation can be slow because it includes full historical calibration and its
@@ -169,6 +173,103 @@ generated check evidence under ignored `baseline_output/application/`; use synth
 fixtures in tracked tests. Before committing, inspect staged files and diffs, including
 already tracked files. Ignore patterns cannot prevent leaks in tracked content.
 
+## Select cached historical forecasts (Step 3A)
+
+The default selection is deliberately limited to these six hourly origins:
+
+| UTC origin | Helsinki origin (UTC+3) |
+|---|---|
+| `2026-09-06T21:00:00Z` | 7 September 00:00; default |
+| `2026-09-06T22:00:00Z` | 7 September 01:00 |
+| `2026-09-07T03:00:00Z` | 7 September 06:00 |
+| `2026-09-07T21:00:00Z` | 8 September 00:00 |
+| `2026-09-13T21:00:00Z` | 14 September 00:00 |
+| `2026-10-03T21:00:00Z` | 4 October 00:00 |
+
+This is a small replay selection, not every hourly validation origin. Nearby origins
+have overlapping delivery windows; the same delivery can have a different forecast
+depending on when it was issued. No origins are selected using realized errors or
+actual outcomes. All use `RunConfig.validation()` with the original pre-validation
+fitting cutoff. Normal requests only retrieve prepared JSON, even at later origins.
+
+`GET /api/origins` returns exactly these fields:
+`schema_version`, `run_id`, `model_id`, `predictor_id`, `engine_revision`,
+`generated_at_utc`, `fit_cutoff_utc`, `default_origin_utc`, and `origins` (a sorted
+array of UTC strings). Identity fields match every forecast from that preparation.
+They identify a shared generation run, not a unique origin; use run ID plus origin
+to identify a specific snapshot. Both catalog and forecast responses use `no-store`.
+
+`GET /api/forecast` retains its existing shape and default origin. Add one `origin`
+query to select another cached forecast. Whole-second ISO UTC ending in `Z` or
+`+00:00` is accepted; minutes and seconds must be zero. URL-encode a literal plus,
+or use `Z`. No local/naive timestamp is guessed. Bad syntax, an empty value, duplicate
+origin parameters or unknown parameters return sanitized **400**. A valid UTC hour
+outside the prepared selection returns sanitized **404**. `/api/origins` and
+`/api/health` reject all query parameters. An uninitialized service returns **503**.
+
+For trusted local Python composition, `ForecastConfig.origins` accepts a tuple of
+one to six aware full-hour datetimes in
+`[2026-09-06T21:00:00Z, 2026-10-04T21:00:00Z)`. Values normalize/sort in UTC;
+duplicates and out-of-period origins fail before loading data. The earliest becomes
+the default. This is a startup setting, never a client-provided range. Expanding the
+six-origin cap requires another measured implementation decision.
+
+`service.response(origin)` and `response_json(origin)` optionally take an aware
+datetime; omitted origin retains default retrieval. `origins_response()` returns a
+detached catalog. The immutable JSON map is built completely before the service is
+published. A missing/invalid engine batch aborts startup; no partial cache is served.
+
+### Test Step 3A without a frontend selector
+
+Restart the backend using the server command above and wait for startup. Open:
+
+1. `http://127.0.0.1:8000/api/origins` — six choices and shared identity.
+2. `http://127.0.0.1:8000/api/forecast` — the unchanged default forecast.
+3. `http://127.0.0.1:8000/api/forecast?origin=2026-09-06T22:00:00Z` — 40 steps
+   starting at 22:00 UTC, with the same run/model identity and original fitting cutoff.
+4. Repeat the selected URL — values and generation metadata remain identical.
+5. `http://127.0.0.1:8000/api/forecast?origin=bad` — 400.
+6. `http://127.0.0.1:8000/api/forecast?origin=2026-09-07T00:00:00Z` — 404,
+   because that hour is not prepared. Do not silently substitute a nearby forecast.
+
+Alternatively use `/docs` to execute the two forecast routes and see response codes.
+The existing frontend continues to fetch the default; its selector is Step 3B.
+
+Focused synthetic checks, from root:
+
+```powershell
+.\.venv\Scripts\python.exe -W error::FutureWarning -m unittest backend.tests.test_origin_selection backend.tests.test_forecast_service backend.tests.test_forecast_api -q
+```
+
+The existing HTTP smoke now checks every cached origin:
+
+```powershell
+.\.venv\Scripts\python.exe -W error::FutureWarning -m backend.tests.smoke_forecast_api --data-dir data
+```
+
+It starts and stops its own temporary loopback server. No full-period forecast export
+or actuals access is needed. The older non-HTTP smoke continues to check the default
+40-quarter response, even though startup now prepares the full small selection.
+
+Step 3A verification on Windows: all **33 relevant backend tests** passed. The real
+HTTP smoke matched all eight prediction fields and identifiers for **240 rows** across
+six origins; repeated responses and shared identity matched. One fit, one batch
+prediction, two source CSV reads and zero actuals reads were observed, with unchanged
+source hashes. Preparation took **30.709s**, startup **30.813s**, and the slowest of
+six measured selected-origin HTTP retrievals took **0.022s**. These are local single-run
+observations, not a benchmark or a claim of faster calibration than earlier steps.
+
+Serialized forecast/catalog cache: **69,769 bytes**. Forecast DataFrame: **36,612
+bytes**. These measurements exclude fitted model state, provenance and total process
+memory; they justify keeping this small selection, not scaling to all origins.
+Environment: Python 3.12.16, pandas 2.2.3, NumPy 2.3.5 and the shared locked HTTP
+versions. Engine revision:
+`sha256:657e7ac46031e67662d6dc2b5e64d7d0408dc77cbeda22afc08f7de8865b0fd7`.
+Safe report: `baseline_output/application/step-3a-01/http_smoke_report.json`.
+macOS, interactive Swagger rendering and a new browser walkthrough remain unverified;
+real HTTP and OpenAPI passed. No frontend or engine suite rerun was needed for
+unchanged code. Engine change proposals: **None**. Stop for review and Step 3B approval.
+
 ## Verification actually performed
 
 Step 1A on Windows, 7 November 2026: Python 3.14.2, pandas 3.1.1, NumPy 2.5.4,
@@ -188,27 +289,21 @@ not verified. Its independent review was subsequently approved and the changes w
 published by the user. Forecast accuracy remains baseline quality. Step 1B's separate
 HTTP checks are recorded below.
 
-## Start the local HTTP server (Step 1B)
+## Start the local HTTP server
 
-Install the backend dependencies into the same environment as the editable engine.
-The manifest pins the tested direct packages and the serialization/middleware pair.
-Lower-level transitive dependencies are resolved by pip; this is not a full lockfile.
-The dependency versions tested here are listed below. Do not change the starter's
-root `requirements.txt` or copy your environment to the other machine.
+Use the synchronized shared environment described above. Do not install backend
+packages separately, change the starter's root `requirements.txt` or copy `.venv`
+to the other machine. Step 3A adds no dependencies.
 
 Windows PowerShell, from the repository root:
 
 ```powershell
-.\.venv\Scripts\python.exe -m pip install -r backend/requirements.txt
-.\.venv\Scripts\python.exe -m pip check
 .\.venv\Scripts\python.exe -m uvicorn backend.app.main:app --host 127.0.0.1 --port 8000 --workers 1 --no-access-log
 ```
 
 macOS, from the repository root:
 
 ```bash
-.venv/bin/python -m pip install -r backend/requirements.txt
-.venv/bin/python -m pip check
 .venv/bin/python -m uvicorn backend.app.main:app --host 127.0.0.1 --port 8000 --workers 1 --no-access-log
 ```
 
@@ -225,20 +320,22 @@ Open these URLs after startup:
 | `http://127.0.0.1:8000/docs` | Interactive Swagger API documentation; expand GET and use Try it out / Execute. |
 | `http://127.0.0.1:8000/api/health` | `{"status":"ready"}` after successful preparation. |
 | `http://127.0.0.1:8000/api/forecast` | The genuine cached 40-quarter historical forecast, including probabilities and run metadata. |
+| `http://127.0.0.1:8000/api/origins` | Available UTC origins, default origin and shared model/run identity. |
+| `http://127.0.0.1:8000/api/forecast?origin=2026-09-06T22:00:00Z` | The cached forecast issued one hour after the default. |
 | `http://127.0.0.1:8000/openapi.json` | Machine-readable API schema derived from the existing response dataclasses. |
 
-The root URL `/` returns 404: there is no dashboard yet. Documentation UI assets use
+The backend root URL `/` returns 404; the frontend runs on its own Vite port. Documentation UI assets use
 FastAPI's default external CDN; the API endpoints themselves work locally without
 external market-data requests. A blocked CDN can prevent the interactive docs from
 rendering while the JSON endpoints still work.
 
-Both API endpoints currently accept no query parameters. An `origin=...` parameter
-returns 400; selection is a later step. Neither endpoint accepts source paths, training
-settings or model selection. The forecast is fixed to the first validation origin,
-not today's date. No dataset/static-file route, authentication or CORS middleware is
+`/api/forecast` accepts one optional `origin` parameter. `/api/origins` and `/api/health`
+accept none. No endpoint accepts source paths, training settings or model selection.
+Omitting `origin` retains the first validation forecast, not today's date.
+No dataset/static-file route, authentication or CORS middleware is
 added. Bind only to loopback; the planned Vite proxy will keep browser API calls relative.
 
-Server-side reuse and HTTP caching are separate: the service retains one snapshot,
+Server-side reuse and HTTP caching are separate: the service retains the prepared snapshots,
 while responses send `Cache-Control: no-store` so clients do not retain stale snapshots
 across restarts. A successful lifespan calls preparation once; requests never fit or
 predict. Shutdown clears the service reference. Each independent process/reload starts
