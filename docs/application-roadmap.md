@@ -5,7 +5,8 @@ Step 2 is now split into 2A (API connection and table) and 2B (chart).
 Steps 2A and 2B were approved and published by the user. Step 3 is split into 3A
 (backend selection/cache) and 3B (browser selector). Step 3A was reviewed, approved
 and published; the user authorized 3B on 7 November 2026. Its results and verification
-limits are recorded below. Step 4 and later work require separate approval. The user confirmed on
+limits are recorded below. The user separately authorized Step 4 as one implementation
+step on 8 November 2026. Step 5 and later work require separate approval. The user confirmed on
 7 November 2026 that engine Step 6
 passed independent review and was published to GitHub. Older engine documents still
 describe that review as pending; this plan records the update without editing them.**
@@ -701,6 +702,64 @@ calculations; probabilities retain their official meanings. No horizon-event cla
 fabricated signal, causal explanation or accuracy improvement is asserted. Real-data
 and synthetic verification pass, including the baseline's potentially flat signals.
 
+### Step 4 implementation and verification
+
+Implemented as one step, as authorized by the user. Added `forecastSummary.ts`, shared
+`useQuarterInspection.ts`, `ForecastAnalysis.tsx`, `ProbabilityChart.tsx` and
+`RiskSummary.tsx`, component CSS and focused tests. App now mounts a keyed analysis
+group so origin/run changes reset quarter selection while timezone changes preserve
+it. Price chart selection is controlled by the analysis group and shared with both
+probability timelines, summary list and maximum-inspection actions. The historical
+selector and exact-price table remain outside per-quarter updates.
+
+Separate direction and exceptional-price panels use raw probabilities, step geometry,
+fixed 0–100% axes, matching UTC delivery times and full final-quarter duration.
+Solid/dashed/dotted strokes and labels distinguish events. Direction definitions refer
+to dominating mFRR regulation; high/low spike definitions remain strictly above/below
+spot ±€50/MWh without exposing spot or numerical threshold prices. Flat probabilities,
+tied maxima and tied most-likely directions are explicit. Width is P90 minus P10.
+Maxima are per-quarter, never ten-hour union probabilities or sums. Percentage labels
+are rounded for readability with exact model probabilities available in native details.
+Only machine-scale floating-point noise is treated as a tie; no alert thresholds,
+trading recommendations, invented drivers or extra uncertainty bands were added.
+
+Independent plotting boundaries keep the price table and selectable exact probabilities
+available after a plot failure. An actual analysis/table integration test forces both
+plotting boundaries to fail and verifies retained exact-value access. No backend, engine,
+public HTTP/CSV contract, dependency, lockfile or original challenge-file changes.
+
+Windows focused checks passed: **33 relevant tests across six files**, covering helper
+math, probability limits, ties/flat outputs, controlled price-chart regressions, shared
+inspection, failure isolation and App lifecycle/origin reset. The initial combined run
+found four ambiguous origin-selector test queries after adding the quarter selector;
+these were scoped by accessible name and all 12 App tests passed on rerun. A third
+probability/failure test was added and all three probability tests passed. TypeScript
+and production build passed; unrelated suites were not rerun.
+
+```powershell
+npm.cmd --prefix frontend run test -- --run src/forecastSummary.test.ts src/components/RiskSummary.test.tsx src/components/ProbabilityChart.test.tsx src/components/ForecastChart.test.tsx src/components/ChartBoundary.test.tsx src/App.test.tsx
+npm.cmd --prefix frontend run build
+git diff --check
+```
+
+Real HTTP verification used the existing user backend on 8000 and an author-owned
+production preview on 4174. Actual frontend parsers/helpers preserved **1,200
+probabilities** over six origins /240 rows; **18 maxima calculations** matched
+independent calculations. Chart data kept all raw values/full ten-hour domains and
+did not mutate source points. All six baseline forecasts had flat direction and spike
+probabilities across quarters. Built assets served, and no restricted spot field was
+present. The preview was stopped; the user's backend was left running. Safe evidence
+and review handoff: `baseline_output/application/step-4-01/`. Engine revision used:
+`sha256:7c2e0800711a71378cfb83fe50371c773f313fbcc987722bdce380d0d644e0a4`.
+Model remains persistence-v1; no accuracy improvement is claimed.
+
+Browser access host was unavailable. Native visual/keyboard/touch checks, responsive/
+zoom/scrolling, browser Console/Network, screen readers and macOS remain unverified.
+Synthetic geometry and HTTP checks are not browser evidence; no overall Anti Slop
+click-through PASS is claimed. The first functional milestone is implemented for the
+bounded six-origin selection, pending browser verification and independent review.
+**Engine change proposals: None.** Stop before Step 5 and before any Git writes.
+
 ## Step 5. Compare forecasts with actual outcomes
 
 **Objective and implementation:** Reuse Step 3's origin selection and cached forecasts.
@@ -836,5 +895,5 @@ Use [the independent review workflow](REVIEW.md); obtain approval for the affect
 candidate before any separately authorized push. An approved roadmap or review verdict
 does not authorize implementation of the next step, committing, pushing or merging.
 
-The roadmap was initially a planning-only change. Steps 1A, 1B, 2A, 2B, 3A and 3B's separately
+The roadmap was initially a planning-only change. Steps 1A, 1B, 2A, 2B, 3A, 3B and 4's separately
 authorized implementation and actual verification are recorded above; later steps remain gated.

@@ -1,10 +1,10 @@
 # Forecast frontend
 
-Steps 2A, 2B and 3B connect React/TypeScript/Vite to the local FastAPI service. Choose
+Steps 2A, 2B, 3B and 4 connect React/TypeScript/Vite to the local FastAPI service. Choose
 one of six cached historical forecasts: all 40 quarter-hours, P10/P50/P90 in EUR/MWh,
 Helsinki timestamps with explicit offsets, and model/run identity. The accessible
-table accompanies a median line and P10-to-P90 chart. Probability displays remain a
-later step. The current model remains the persistence baseline.
+table accompanies the median/P10-to-P90 chart, direction and exceptional-price
+probability timelines, and forecast risk summaries. The model remains the persistence baseline.
 
 Application styling lives in `src/index.css`, `src/App.css` and the component CSS
 files. No Tailwind dependency is used. Recharts manages its own SVG/HTML geometry.
@@ -161,6 +161,11 @@ local API proxy. This is a local build check, not a production deployment setup.
 | `src/time.ts` | Explicit Helsinki/UTC formatting and ten-hour end time |
 | `src/components/ForecastTable.tsx`, `.css` | Accessible 40-quarter price table |
 | `src/components/ForecastChart.tsx`, `.css` | Price/uncertainty plot, selection and exact-value readout |
+| `src/components/ForecastAnalysis.tsx` | Owns shared quarter selection and memoized summary, isolating updates from App/table |
+| `src/components/ProbabilityChart.tsx`, `.css` | Separate 0–100% direction/spike timelines with matching UTC quarter geometry |
+| `src/components/RiskSummary.tsx`, `.css` | Per-quarter maxima, tied-quarter inspection and selected exact probabilities |
+| `src/forecastSummary.ts` | Pure maxima, interval-width, direction-tie and percentage calculations |
+| `src/useQuarterInspection.ts` | Shared mouse/tap/keyboard quarter-inspection behavior |
 | `src/components/OriginSelector.tsx`, `.css` | Date-scaled replay timeline, local drag preview, keyboard/buttons and exact-time selection |
 | `src/forecastChart.ts` | UTC chart data, full-period geometry and axis formatting |
 | `src/components/ChartBoundary.tsx` | Keeps the table available if the chart fails |
@@ -262,3 +267,80 @@ successfully. Browser automation was unavailable, so these do not establish real
 native-drag rendering/feel, touch, screen-reader behavior or responsive/zoom results.
 macOS and unrelated backend/engine/chart/table suites were not rerun for this step.
 No dependencies, backend, engine contract or forecasting accuracy changed.
+
+## Direction and exceptional-price probabilities (Step 4)
+
+The forecast risk summary shows the highest **per-quarter** high-spike probability,
+highest per-quarter low-spike probability, and widest P10–P90 interval (P90 minus P10).
+Each points to a delivery time; Inspect selects that quarter in all plots. Tied maxima
+show a count and expandable list with every tied quarter. If all 40 quarters share a
+value, that is stated explicitly. Maxima are never presented as the probability of an
+event anywhere in the ten-hour window; per-quarter probabilities are not summed.
+
+The selected-delivery readout shows all five probabilities and the direction with the
+highest probability, including ties. The native Inspect delivery quarter list provides
+access to all 40 quarters even if plotting fails. Expand Exact model probabilities
+(0–1) for unrounded API values. Percentage labels use up to two decimals and preserve
+near-boundary meaning with `<0.01%`/`>99.99%`; only exact 0/1 display as 0%/100%.
+Widths display to two decimals. Maxima and comparisons use original values; only
+machine-scale arithmetic noise (eight scaled floating-point epsilons) is treated as a tie.
+
+Direction means the dominating **mFRR balancing regulation**: up, down or none. It is
+not a price-change prediction. High spike means imbalance price strictly above
+spot + €50/MWh; low spike means strictly below spot − €50/MWh. Only probabilities are
+shown, never actual spot values or calculated numerical spot-relative thresholds.
+These are forecast summaries, not model explanations, alerts or trading recommendations.
+
+Below the price chart, two probability timelines use the same delivery-start axis and
+complete ten-hour extent, including quarter 40's duration. Their axes stay at 0–100%.
+Step lines retain raw per-quarter probabilities; solid/dashed/dotted lines and labels
+distinguish events without red/green thresholds. Equal lines can overlap. Flat output
+is labeled honestly; no trend or unique riskiest quarter is invented.
+
+Hover/tap or use Left/Right/Home/End on any plot to update the shared quarter, price
+guide, probability guides/legends and summary. Price-chart Previous/Next and the summary
+quarter list use the same selection. This changes no API data and makes no data request.
+Changing forecast origin resets quarter 1; timezone switching preserves the quarter.
+ForecastAnalysis owns this selection so the historical-origin panel and price table
+do not rerender on every plot inspection. Summary maxima are memoized per forecast.
+
+Price and probability plots load separately behind independent error boundaries. Exact
+prices remain in the table and probabilities remain selectable in the summary if a
+plot fails. The failure-isolation test exercises both real plotting boundaries with
+an invented ResizeObserver failure, not just a placeholder sibling.
+
+Focused checks from root:
+
+```powershell
+npm.cmd --prefix frontend run test -- --run src/forecastSummary.test.ts src/components/RiskSummary.test.tsx src/components/ProbabilityChart.test.tsx src/components/ForecastChart.test.tsx src/components/ChartBoundary.test.tsx src/App.test.tsx
+npm.cmd --prefix frontend run build
+```
+
+Windows checks: **33 relevant tests passed across focused runs**, with TypeScript/build
+passing. Existing App queries were scoped to distinguish origin and delivery selectors.
+Tests cover tied/flat/non-flat summaries, percentage boundaries, interval-width
+arithmetic with negative prices, full-period probability SVG geometry, shared selection/no fetching,
+DST option identity, origin resets and actual chart failure isolation. No unrelated
+backend/engine/API/table suites were rerun. No dependency installation was needed.
+
+Real production-preview HTTP/helper verification checked six origins /240 rows:
+**1,200 probabilities** unchanged, **18 maxima calculations** matched, source points
+unmutated and full ten-hour chart domains. All six baseline forecasts had constant
+direction and spike probabilities across their quarters. Built assets served; no spot
+field appeared. Safe evidence: `baseline_output/application/step-4-01/`.
+This is not real-browser rendering evidence. Browser automation was unavailable;
+visual/keyboard/touch/responsive/zoom, console and Network checks remain manual.
+macOS and screen-reader behavior were not verified. No forecast-accuracy claim.
+
+Manual browser checks:
+
+1. Inspect quarters 1 and 40 through the summary list, both probability plots and
+   price controls. All guides/readouts must agree; quarter 40 ends at origin +10h.
+2. Compare all five Exact model probabilities with the matching API point. Direction
+   totals should match the returned model values; displayed percentages can round.
+3. Use Inspect on a maximum; confirm its time/value and the selected quarter. Expect
+   all-quarter ties for this baseline's flat probabilities. Widths can vary.
+4. Change origin and timezone; confirm reset/preservation behavior. Recheck failed
+   requests/retry: old risk/price/probability views must all clear together.
+5. Check 320px/intermediate/desktop, 200% zoom, keyboard focus/exit, touch scrolling,
+   Console and Network. Delivery inspection must create no data requests.

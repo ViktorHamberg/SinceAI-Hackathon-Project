@@ -1,8 +1,16 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { expect, it, vi } from 'vitest';
-import ForecastChart from './ForecastChart';
+import { useState } from 'react';
+import PriceChart from './ForecastChart';
+import type { ForecastPoint } from '../api/forecast';
+import type { DisplayZone } from '../time';
 import { fixture } from '../test/fixture';
+
+function ForecastChart({ points, zone }: { points: ForecastPoint[]; zone: DisplayZone }) {
+  const [selectedIndex, onSelect] = useState(0);
+  return <PriceChart points={points} zone={zone} selectedIndex={selectedIndex} onSelect={onSelect} />;
+}
 
 it('renders a real ranged band, median and final-quarter marks with an accessible chart', async () => {
   const { container } = render(<ForecastChart points={fixture().points} zone="Europe/Helsinki" />);

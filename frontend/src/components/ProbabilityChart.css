@@ -1,0 +1,17 @@
+.probability-charts { background: var(--paper); border: 1px solid var(--line); margin-top: 1rem; padding: 1.2rem .8rem .8rem; min-width: 0; }
+.probability-charts > h2 { font-size: 1.125rem; letter-spacing: -.02em; margin-bottom: .5rem; }
+.probability-charts > p { font-size: .75rem; line-height: 1.6; color: var(--muted); }
+.probability-panel + .probability-panel { border-top: 1px solid var(--line); margin-top: 1rem; padding-top: 1rem; }
+.probability-panel h3 { font-size: .9375rem; font-weight: 650; margin: .7rem 0; }
+.probability-readout > p { font-size: .75rem; line-height: 1.6; margin-bottom: .7rem; }
+.probability-legend { list-style: none; display: flex; flex-wrap: wrap; gap: .6rem 1.2rem; margin: 0 0 .7rem; padding: 0; }
+.probability-legend li { display: flex; align-items: center; gap: .4rem; font-size: .75rem; }
+.probability-legend strong { font-variant-numeric: tabular-nums; }
+.probability-canvas { height: 250px; width: 100%; min-width: 0; }
+.probability-canvas .recharts-wrapper { cursor: crosshair; touch-action: pan-y; }
+.probability-canvas .recharts-cartesian-axis-tick-value { fill: var(--muted); font-size: .6875rem; font-variant-numeric: tabular-nums; }
+.probability-flat { margin: .2rem .4rem .5rem; font-size: .75rem; line-height: 1.6; color: var(--muted); }
+@media (min-width: 620px) {
+  .probability-charts { padding: 1.2rem 1rem 1rem; }
+  .probability-canvas { height: 280px; }
+}
