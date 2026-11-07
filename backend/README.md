@@ -24,6 +24,11 @@ The backend is imported from the repository root, not separately installed.
 
 ## Setup on Windows and macOS
 
+For ongoing team development, use the shared
+[uv environment workflow](../docs/python-environment.md), including its verification
+status. It installs engine and backend together with one sync command; the pip examples
+below remain the original setup reference. No separate backend environment is needed.
+
 Use the existing Python 3.11+ environment and editable engine installation described in
 [the engine guide](../docs/forecasting-engine.md). Do not share `.venv` directories
 between machines. Both teammates need their own authorized local challenge data.
