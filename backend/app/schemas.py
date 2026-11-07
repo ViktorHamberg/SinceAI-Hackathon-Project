@@ -61,6 +61,32 @@ class ForecastResponse:
         return json.dumps(asdict(self), allow_nan=False, ensure_ascii=False, separators=(",", ":"))
 
 
+@dataclass(frozen=True, slots=True, repr=False)
+class OriginsResponse:
+    schema_version: str
+    run_id: str
+    model_id: str
+    predictor_id: str
+    engine_revision: str
+    generated_at_utc: str
+    fit_cutoff_utc: str
+    default_origin_utc: str
+    origins: tuple[str, ...]
+
+    def to_json(self) -> str:
+        return json.dumps(asdict(self), allow_nan=False, ensure_ascii=False, separators=(",", ":"))
+
+
+def parse_origin(value: str) -> datetime:
+    """Accept whole-second UTC ISO timestamps, then require a full-hour origin."""
+    if not re.fullmatch(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:Z|\+00:00)", value):
+        raise ValueError("Origin must be a full-hour UTC timestamp.")
+    origin = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    if origin.minute or origin.second:
+        raise ValueError("Origin must be a full-hour UTC timestamp.")
+    return origin
+
+
 def build_response(
     result: "ForecastResult", *, origin: datetime, config: RunConfig,
     model_id: str, engine_revision: str, run_id: str, generated_at_utc: datetime,

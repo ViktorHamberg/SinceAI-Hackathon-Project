@@ -22,7 +22,7 @@ from forecast_engine import (
     ForecastProvenance, ForecastResult, OriginProvenance, RunConfig,
     SourceDependency, empty_forecast_frame,
 )
-from backend.app.config import ForecastConfig
+from backend.app.config import DEFAULT_ORIGIN, ForecastConfig
 from backend.app.forecast_service import ForecastPreparationError, prepare_forecast
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -53,7 +53,7 @@ class ForecastServiceTests(unittest.TestCase):
     def setUp(self):
         self.result = synthetic_result()
         self.data = ForecastInputs(pd.DataFrame({"private_source": [PRIVATE_SENTINEL]}))
-        self.config = ForecastConfig(Path("unused inputs.csv"), Path("unused spot.csv"))
+        self.config = ForecastConfig(Path("unused inputs.csv"), Path("unused spot.csv"), origins=(DEFAULT_ORIGIN,))
         self.fitted = Mock(provenance=self.result.provenance.fitting)
         self.fitted.predict.return_value = self.result
         self.predictor = Mock()

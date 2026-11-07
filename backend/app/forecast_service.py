@@ -1,12 +1,14 @@
 """Explicit preparation and read-only retrieval; no HTTP or import-time execution."""
 
-from dataclasses import dataclass, field
+from collections.abc import Mapping
+from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
 import hashlib
 import json
 from pathlib import Path
 import time
 from typing import TYPE_CHECKING
+from types import MappingProxyType
 from uuid import uuid4
 
 import forecast_engine
@@ -14,7 +16,7 @@ from forecast_engine import RunConfig, forecast, load_inputs
 from forecast_engine.models import PersistencePredictor
 
 from .config import ForecastConfig
-from .schemas import build_response
+from .schemas import OriginsResponse, build_response, utc_text
 
 if TYPE_CHECKING:
     from forecast_engine import FittedPredictor, ForecastResult, Predictor
@@ -58,21 +60,30 @@ class ForecastService:
 
     _fitted: "FittedPredictor" = field(repr=False)
     _result: "ForecastResult" = field(repr=False)
-    _json: str = field(repr=False)
+    _json_by_origin: Mapping[datetime, str] = field(repr=False)
+    _origins_json: str = field(repr=False)
+    default_origin_utc: datetime
     preparation_seconds: float
 
-    def response(self) -> dict:
-        return json.loads(self._json)
+    def response(self, origin: datetime | None = None) -> dict:
+        return json.loads(self.response_json(origin))
 
-    def response_json(self) -> str:
-        return self._json
+    def response_json(self, origin: datetime | None = None) -> str:
+        return self._json_by_origin[self.default_origin_utc if origin is None else origin]
+
+    def origins_response(self) -> dict:
+        return json.loads(self._origins_json)
+
+    @property
+    def cached_json_bytes(self) -> int:
+        return sum(len(value.encode("utf-8")) for value in self._json_by_origin.values()) + len(self._origins_json.encode("utf-8"))
 
 
 def prepare_forecast(
     config: ForecastConfig | None = None, *, predictor: "Predictor | None" = None,
     model_id: str | None = None,
 ) -> ForecastService:
-    """Load, fit once and cache one genuine forecast for the first validation origin.
+    """Load, fit once and batch-generate the configured validation-origin snapshots.
 
     Step 1B can call this during lifespan and reuse the returned service in routes.
     Alternative models use the same public engine contract and require an explicit
@@ -88,7 +99,6 @@ def prepare_forecast(
         elif model_id is None:
             raise ValueError("An alternative predictor requires a model recipe identifier.")
         run_config = RunConfig.validation()
-        origin = run_config.fit_cutoff_utc
         stage = "engine identity"
         revision = _engine_revision()
         stage = "loading inputs"
@@ -96,18 +106,32 @@ def prepare_forecast(
         stage = "fitting"
         fitted = predictor.fit(data, config=run_config)
         stage = "prediction"
-        result = forecast(fitted, data, origins=[origin])
+        result = forecast(fitted, data, origins=config.origins)
         stage = "response serialization"
-        response = build_response(
-            result, origin=origin, config=run_config, model_id=model_id,
-            engine_revision=revision, run_id=str(uuid4()),
-            generated_at_utc=datetime.now(timezone.utc).replace(microsecond=0),
+        run_id = str(uuid4())
+        generated = datetime.now(timezone.utc).replace(microsecond=0)
+        payloads = {}
+        for origin, record in zip(config.origins, result.provenance.inference, strict=True):
+            single = replace(result,
+                             forecasts=result.forecasts.loc[result.forecasts["forecast_origin_utc"].eq(origin)].copy(),
+                             provenance=replace(result.provenance, inference=(record,)))
+            response = build_response(
+                single, origin=origin, config=run_config, model_id=model_id,
+                engine_revision=revision, run_id=run_id, generated_at_utc=generated,
+            )
+            payloads[origin] = response.to_json()
+        catalog = OriginsResponse(
+            schema_version=response.schema_version, run_id=run_id, model_id=response.model_id,
+            predictor_id=response.predictor_id, engine_revision=revision,
+            generated_at_utc=utc_text(generated), fit_cutoff_utc=utc_text(run_config.fit_cutoff_utc),
+            default_origin_utc=utc_text(config.origins[0]),
+            origins=tuple(utc_text(origin) for origin in config.origins),
         )
-        payload = response.to_json()
         stage = "engine integrity"
         if _engine_revision() != revision:
             raise ValueError("Engine sources changed during preparation.")
-        return ForecastService(fitted, result, payload, time.perf_counter() - started)
+        return ForecastService(fitted, result, MappingProxyType(payloads), catalog.to_json(),
+                               config.origins[0], time.perf_counter() - started)
     except Exception:
         # Suppress chained parser/model exceptions, including private values in
         # ordinary tracebacks. Do not log exception text or partially built data.

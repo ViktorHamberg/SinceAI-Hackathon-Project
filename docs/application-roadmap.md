@@ -2,9 +2,10 @@
 
 **Status: Steps 1A and 1B passed independent review and were published by the user.
 Step 2 is now split into 2A (API connection and table) and 2B (chart).
-Step 2A was approved and published by the user. Step 2B was separately authorized on
+Steps 2A and 2B were approved and published by the user. Step 3 is split into 3A
+(backend selection/cache) and 3B (browser selector). The user authorized 3A on
 7 November 2026; its implementation and verification limits are recorded below.
-Step 3 and later work require separate approval. The user confirmed on
+Step 3B and later work require separate approval. The user confirmed on
 7 November 2026 that engine Step 6
 passed independent review and was published to GitHub. Older engine documents still
 describe that review as pending; this plan records the update without editing them.**
@@ -519,6 +520,11 @@ authorized by this result.
 
 ## Step 3. Select historical forecast origins
 
+Implement this step in two separately reviewed halves, as agreed with the user.
+Step 3A is authorized; Step 3B requires explicit approval after the backend handoff.
+
+### Step 3A. Backend origin selection and caching
+
 **Objective and implementation:** Extend the service to a bounded selection of validation
 origins from 7 September–4 October, using the existing validation-fitted predictor.
 Support `GET /api/forecast?origin=...` and `GET /api/origins` with a small documented
@@ -528,25 +534,89 @@ Preserve the documented run/model identity and return the selected historical or
 Reject unsupported, naive or non-hourly origins safely; never accept client filesystem
 paths, arbitrary training dates or model parameters. No actuals are loaded in this step.
 
-Add a keyboard-accessible origin selector. Selecting an origin retrieves its cached
-forecast without fitting or prediction in the request. Cancel/ignore stale responses
-when selection changes; loading/errors must not show a previous chart as the new result.
+Keep the existing no-query forecast response and its default origin compatible with
+the current frontend. Return an explicit origin catalog with shared generation/run
+identity. Configuration and query validation must reject unsupported selections
+without echoing user input or accepting paths/model/training settings.
 
-**Expected new files:** `frontend/src/components/OriginSelector.tsx`, focused frontend
-selection tests and `backend/tests/test_origin_selection.py`. Modify backend
-config/service/routes/schemas, frontend API/types/App/chart and both guides as needed.
+**Files:** Add `backend/tests/test_origin_selection.py`. Modify backend
+config/service/routes/schemas, affected service/API tests, existing smoke commands,
+the backend guide and this roadmap. No frontend, engine or dependency changes.
 
 **Verify:** Check allowed/invalid origins, complete horizons, exact UTC selection,
-overlapping delivery windows and frontend response races. Count fit/predict calls to
+overlapping delivery windows and stable shared metadata. Count fit/predict calls to
 prove selection only retrieves cached results. Real-data smoke compares a small set
 of API forecasts against the engine and verifies repeated retrieval and stable metadata.
 
-**After this step:** Users can move between real historical forecasts in the browser.
+**After this half:** The API lists a small set of origins and serves each complete
+cached forecast. Users can test it through JSON URLs or Swagger without a selector.
 
 **Acceptance criteria:** Only allowed validation origins are selectable, all use the
 correct pre-validation fit, and each returns 40 steps. Selection does no fitting or
-prediction; times, metadata, loading and failure states remain unambiguous. Stop for
-review and explicit Step 4 approval.
+prediction; times, metadata and safe failure states remain unambiguous. Record startup
+and cache size, then stop for review and explicit Step 3B approval.
+
+### Step 3A result and verification
+
+Default configuration now contains six origins at offsets 0, 1, 6, 24, 168 and 648
+hours from the first validation origin. The last is 4 October 00:00 Helsinki time.
+This is a documented small selection, not the complete validation range or an
+outcome-selected showcase. One `RunConfig.validation()` fit and one public batch
+`forecast(...)` generate all 240 rows during startup. Each 40-row result retains its
+original inference evidence when serialized. The complete immutable cache and catalog
+publish only after successful validation and engine-source integrity checks.
+
+`GET /api/origins` returns sorted UTC strings, the default and shared safe identity.
+`GET /api/forecast?origin=...` accepts one whole-hour UTC origin from that catalog.
+Omitting the parameter retains the current default envelope/40 points, so the existing
+frontend remains compatible. Bad/duplicate/unknown query parameters return 400;
+well-formed uncached origins return 404. No client range or generation endpoint exists.
+The six-origin startup cap prevents accidental full-period preparation. Dates outside
+validation, naive/non-hourly timestamps and duplicate UTC instants cannot be configured.
+
+All **33 relevant backend tests** passed with FutureWarnings treated as errors:
+
+```powershell
+.\.venv\Scripts\python.exe -W error::FutureWarning -m unittest backend.tests.test_origin_selection backend.tests.test_forecast_service backend.tests.test_forecast_api -q
+.\.venv\Scripts\python.exe -W error::FutureWarning -m backend.tests.smoke_forecast_api --data-dir data
+git diff --check
+```
+
+The real-data HTTP smoke matched every identifier and all eight numerical fields
+against the engine's retained 240-row batch, with stable repeated responses and shared
+run metadata. It observed one fit, one batch prediction, two source reads, no actuals
+reads and unchanged source hashes. Default retrieval, selection, bad/uncached origins,
+OpenAPI/docs HTML, unavailable data routes and temporary server shutdown passed.
+Preparation was **30.709s**, startup **30.813s** and the maximum of six measured
+selected-origin HTTP retrievals **0.022s** in this one local run. Serialized JSON cache
+and catalog occupy **69,769 bytes**; the forecast table **36,612 bytes**. These size
+measurements exclude fitted state, provenance and process memory. No scaling or
+performance improvement claim follows from them.
+
+Windows environment: Python 3.12.16, pandas 2.2.3, NumPy 2.3.5; locked HTTP dependencies
+unchanged. Engine revision:
+`sha256:657e7ac46031e67662d6dc2b5e64d7d0408dc77cbeda22afc08f7de8865b0fd7`.
+Safe evidence and the handoff are under ignored `baseline_output/application/step-3a-01/`.
+macOS and a fresh interactive browser/Swagger walkthrough were not verified. Frontend
+and engine suites were not rerun because their code is unchanged; backend compatibility
+and real HTTP passed. No accuracy improvement is claimed. **Engine change proposals:
+None.** Stop for independent review and explicit Step 3B approval. No Git write.
+
+### Step 3B. Browser origin selector and integration (not yet authorized)
+
+Add a keyboard-accessible `OriginSelector.tsx` and CSS, using 3A's catalog. Selecting
+an origin retrieves its cached forecast and updates chart, table and metadata. Reuse
+the existing API/time helpers. Cancel/ignore stale responses when selection changes;
+loading/errors must not present the previous chart as a newly requested result.
+Define/reset chart-quarter selection explicitly when the selected origin changes.
+
+Modify frontend API/types/App/chart and the frontend guide as needed, with focused
+selection/race tests. Verify real API integration, exact UTC identity, overlapping
+delivery windows, keyboard/narrow-screen use and recovery. Requests must retrieve
+cached results only. The backend contract is already established by 3A.
+
+After 3B, users can move between real historical forecasts in the browser. Stop for
+independent review and explicit Step 4 approval.
 
 ## Step 4. Add direction, exceptional-price probabilities and risk summaries
 
@@ -719,5 +789,5 @@ Use [the independent review workflow](REVIEW.md); obtain approval for the affect
 candidate before any separately authorized push. An approved roadmap or review verdict
 does not authorize implementation of the next step, committing, pushing or merging.
 
-The roadmap was initially a planning-only change. Steps 1A, 1B, 2A and 2B's separately
+The roadmap was initially a planning-only change. Steps 1A, 1B, 2A, 2B and 3A's separately
 authorized implementation and actual verification are recorded above; later steps remain gated.

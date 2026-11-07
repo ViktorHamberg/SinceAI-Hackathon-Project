@@ -16,7 +16,7 @@ from unittest.mock import Mock, patch
 
 from fastapi.testclient import TestClient
 
-from backend.app.config import ForecastConfig
+from backend.app.config import DEFAULT_ORIGIN, ForecastConfig
 from backend.app.forecast_service import ForecastPreparationError, ForecastService, prepare_forecast
 from backend.app.main import create_app
 from backend.tests.test_forecast_service import PRIVATE_SENTINEL, synthetic_result
@@ -30,7 +30,7 @@ class ForecastApiTests(unittest.TestCase):
         self.fitted.predict.return_value = self.result
         self.predictor = Mock()
         self.predictor.fit.return_value = self.fitted
-        self.config = ForecastConfig(Path("invented inputs.csv"), Path("invented spot.csv"))
+        self.config = ForecastConfig(Path("invented inputs.csv"), Path("invented spot.csv"), origins=(DEFAULT_ORIGIN,))
         self.services = []
         loader = patch("backend.app.forecast_service.load_inputs", return_value=ForecastInputs(None))
         self.loader = loader.start()
@@ -112,7 +112,7 @@ class ForecastApiTests(unittest.TestCase):
 
     def test_no_file_routes_or_write_routes(self):
         with TestClient(self.app) as client:
-            for path in ("/data/spot_nordpool.csv", "/baseline_output/test.json", "/api/files", "/api/origins"):
+            for path in ("/data/spot_nordpool.csv", "/baseline_output/test.json", "/api/files"):
                 self.assertEqual(client.get(path).status_code, 404)
             self.assertEqual(client.post("/api/forecast", json={"path": PRIVATE_SENTINEL}).status_code, 405)
 
@@ -121,7 +121,7 @@ class ForecastApiTests(unittest.TestCase):
             schema = client.get("/openapi.json")
             self.assertEqual(schema.status_code, 200)
             spec = schema.json()
-            self.assertEqual(set(spec["paths"]), {"/api/forecast", "/api/health"})
+            self.assertEqual(set(spec["paths"]), {"/api/forecast", "/api/health", "/api/origins"})
             response_schema = spec["paths"]["/api/forecast"]["get"]["responses"]["200"]["content"]["application/json"]["schema"]
             self.assertEqual(response_schema["$ref"], "#/components/schemas/ForecastResponse")
             fields = spec["components"]["schemas"]["ForecastPoint"]["properties"]
