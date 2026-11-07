@@ -1,6 +1,6 @@
 # First forecasting engine: consolidated implementation plan
 
-**Status: plan approved; Step 1 implemented and verified. Steps 2–6 await separate
+**Status: plan approved; Steps 1–2 implemented and verified. Steps 3–6 await separate
 explicit approval.**
 
 This plan combines the resolved Wayfinder map and the four resolved decision-ticket
@@ -152,6 +152,75 @@ missing nonessential inputs missing; no future-dependent interpolation/backfill.
 **After this step:** Reusable historical input selection and fitting evidence with
 explicit, testable availability guarantees.
 
+### Step 2 result and verification
+
+Implemented `data.py`, `availability.py`, and `provenance.py`. Extended the existing
+public fitting/origin provenance records with backward-compatible dependency tuples;
+the model-independent fit/predict interfaces are unchanged. Added synthetic loading,
+availability, and provenance tests and extended the isolated import check to cover all
+new modules. No starter file, requirements, model, forecast, export, or CLI was changed.
+
+Public interfaces:
+
+- `load_input_data(path)` and `load_spot_prices(path)` explicitly load CSV/Parquet;
+  `load_inputs(inputs_path, spot_path=...)` returns the existing `ForecastInputs` type.
+  Omitted spot data stays `None`; an explicitly supplied missing path raises. The
+  seven-column source schema is checked, scoring actuals are rejected, timezone-aware
+  timestamps are converted to UTC, duplicates/malformed/nonfinite values fail, and
+  genuinely missing values remain missing. `normalize_long(frame)` applies the same
+  rules to caller-provided in-memory tables without mutating them.
+- `select_available(rows, origin_utc, required_series=...)` retains publication
+  `<= origin` and metadata, including already-published future-delivery rows.
+  `select_fitting_labels(rows, config, required_series=...)` additionally enforces
+  `[label_start, label_end)`. These return copied long tables. Required series need
+  finite eligible evidence or raise `MissingEvidenceError`. Optional missing rows are
+  not invented. `rows_available_at(rows, origin_utc)` provides the reference's wide
+  pivot after filtering, without filling gaps.
+- `evidence_from_rows(rows, name=..., used_at_utc=...)` records the rows actually used,
+  with no values. `SourceDependency` retains each row's series/delivery/publication
+  and historical use time. `derive_evidence(name, ..., used_at_utc=...)` retains every
+  transitive source use and inherits the latest publication; it rejects missing or
+  later evidence. Only identical source/use records are deduplicated.
+- `origin_provenance(origin, dependencies)` and `fitting_provenance(config,
+  predictor_id=..., labels=..., historical_inputs=...)` populate the existing public
+  records with exact evidence and summary timestamps/counts. Fitting label dependencies
+  are all checked against the permitted delivery interval; publication and original
+  historical source-use constraints are checked throughout. These functions record and
+  validate evidence only; they do not fit anything.
+
+Call selectors on relevant source rows, construct evidence only for rows actually used,
+and keep historical features selected/recorded at their own origin. Label evidence may
+be recorded later at fitting time. These utilities verify declared dependencies, not
+arbitrary calculations or omitted dependencies; later models must supply full lineage.
+Table adapters do not load `actuals_validation.csv` or discover files implicitly.
+
+Verification on Python 3.12.14, pandas 2.2.3, NumPy 2.3.5:
+
+```bash
+.venv/bin/python -W error::FutureWarning -m unittest discover -s tests -v
+.venv/bin/python -m compileall -q src/forecast_engine tests
+git diff --check
+```
+
+All **29 tests passed**, including the 9 original Step 1 tests. Coverage includes both
+cutoffs and exact boundaries, delayed labels, optional/essential gaps, future-delivery
+inputs and spot, selection invariance, nested derived dependencies, historical use
+times, DST/UTC handling, parser rejection/privacy, and isolated side-effect-free import.
+Separate real-CSV smoke checks loaded 465,101 input rows and 14,824 spot rows and checked
+selection/label assertions at both fitting cutoffs, plus value-free origin provenance.
+No source values were printed, scoring actuals read, or fitting/forecasting performed.
+
+The loader and as-of pivot adapt `baseline.ipynb`'s `read_long()` and
+`rows_available_at()`. Deliberate safety changes reject naive timestamps and malformed
+or duplicate rows, preserve long-form publication metadata, explicitly bound fitting
+labels, and fail on missing required evidence rather than guessing availability.
+
+Real Parquet reads remain unverified because `pyarrow` is absent in this environment.
+Dispatch to pandas and the actionable missing-backend error were tested with mocks;
+real CSV paths were exercised. No dependency was installed or starter requirement
+changed for Step 2. Windows execution and full later forecasting/official validation
+remain unverified and outside this step. Stop here pending explicit Step 3 approval.
+
 ## Step 3. Extract baseline fitting into reusable frozen state
 
 **Implement:** Adapt historical persistence-error calibration, quantile offsets,
@@ -281,6 +350,7 @@ changed files and actual test results, then stop. Each subsequent step requires
 explicit user approval before work begins. If a step reveals a material scope change,
 explain it before proceeding. Do not commit, push or merge unless explicitly requested.
 
-Step 1 is complete. Stop here until the user explicitly approves Step 2. The package
-foundation and tests exist; there is no actual fitting, prediction, data adapter, or
-engine CLI yet. No commit, push, or merge is authorized.
+Steps 1–2 are complete. Stop here until the user explicitly approves Step 3. The package
+foundation, data adapters, historical selection, dependency evidence and focused tests
+exist; there is no actual fitting, prediction, export, or engine CLI yet. No commit,
+push, or merge is authorized.
