@@ -35,3 +35,8 @@ __pycache__/
 Thumbs.db
 ehthumbs.db
 Desktop.ini
+
+# Packaging and build artifacts
+build/
+dist/
+*.egg-info/

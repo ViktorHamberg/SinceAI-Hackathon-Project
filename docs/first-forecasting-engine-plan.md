@@ -1,11 +1,12 @@
 # First forecasting engine: consolidated implementation plan
 
-**Status: proposed for review; no implementation step is approved.**
+**Status: plan approved; Step 1 implemented and verified. Steps 2–6 await separate
+explicit approval.**
 
 This plan combines the resolved Wayfinder map and the four resolved decision-ticket
 Answers supplied on 7 November 2026 with our dataset and baseline analysis. The final
-Answers take precedence over the tickets' earlier proposals. Ticket copies are not
-currently present in this checkout; their supplied resolutions were reviewed directly.
+Answers take precedence over the tickets' earlier proposals. The map and ticket copies
+are available under `.scratch/first-forecasting-engine/`.
 
 ## Scope and relationship to the competing model
 
@@ -35,6 +36,13 @@ corrections even when they prevent exact numerical parity.
   `baseline_output/engine/`, already ignored by git; log no restricted prices or secrets.
 - Fit once per run and preserve its fitted state during inference. Later observations
   may update inference lags only when published by the relevant origin.
+- Keep the public fit/predict/result interface independent of the baseline algorithm;
+  a future gradient-boosted tree predictor must fit behind the same application contract.
+- Prioritize leakage safety, official validation, the complete test CSV, and
+  reproducibility. Notebook parity remains a diagnostic target; justified safety or
+  correctness differences must be explained rather than allowed to delay a working engine.
+- Keep packaging simple and document a verified editable installation command. Do not
+  alter the original starter requirements or require Jupyter for engine use.
 
 The agreed UTC boundaries are inclusive at the start and availability cutoff, and
 exclusive at the label-delivery end:
@@ -51,14 +59,14 @@ qualifying historical origin does not make its entire horizon eligible.
 
 ## Step 1. Establish the importable package and contract
 
-**Implement:** The `turku_forecast` package, explicit run configuration and forecast/
+**Implement:** The `forecast_engine` package, explicit run configuration and forecast/
 provenance types. Establish a public shape that separates fitting from prediction,
 supports one origin and batches, and exposes a forecast DataFrame with separately
 accessible provenance. Optional fields have stable nullable types from the outset.
 
-**Expected new files:** `pyproject.toml`, `src/turku_forecast/__init__.py`,
+**Expected new files:** `pyproject.toml`, `src/forecast_engine/__init__.py`,
 `config.py`, `contracts.py`, and `tests/test_contracts.py`, `tests/test_import.py`.
-Paths without a prefix in these steps are relative to `src/turku_forecast/`.
+Paths without a prefix in these steps are relative to `src/forecast_engine/`.
 
 **Verify:** Import from a separate process and working directory without challenge
 data. Check no import-time I/O/computation, stdout or files. Use synthetic tables to
@@ -67,6 +75,64 @@ types. Define the package setup command without altering starter requirements.
 
 **After this step:** A directly importable foundation and documented caller contract;
 no actual forecast fitting or prediction yet.
+
+### Step 1 result and verified setup
+
+Implemented `pyproject.toml`, `src/forecast_engine/{__init__,config,contracts}.py`,
+and the two focused test files listed above. No implementation of Step 2 or later is
+included. All original starter files, including requirements.txt, remain unchanged.
+
+With Python 3.11+ and the build tools (`setuptools>=64`, `wheel`) available in the
+active environment, run from the repository root:
+
+```bash
+python -m pip install --no-build-isolation -e .
+python -m unittest discover -s tests -v
+```
+
+The installation command checks/installs the package's pandas/NumPy dependencies;
+their ranges match the starter requirements. Full starter dependency provisioning
+continues to use the unchanged `requirements.txt`. No packaging framework or test
+dependency was added. `--no-build-isolation` uses the existing build tools instead of
+trying to download them into a temporary build environment.
+
+Verification used `.venv/bin/python` (Python 3.12.14, pandas 2.2.3, NumPy 2.3.5,
+setuptools 84.2.1, wheel 0.48.0). The shell's default `python3` is 3.6 and is unsuitable.
+No project environment existed; the local ignored `.venv` was created with access to
+the existing Codex Python runtime's installed packages. The editable install succeeded
+both offline with `--no-index --no-deps --no-build-isolation` and with the documented
+command above. A fresh `pip install -r requirements.txt` could not reach the package
+index; full fresh-environment provisioning was not verified. In particular, pyarrow is
+not installed in this verification environment; Step 1 does not load Parquet or data.
+
+All **9 unittest checks passed**. These cover official header/order, timestamp/integer/
+numeric/nullable dtypes, optional values missing then populated, invalid schemas rejected
+without mutation, separate provenance, fitting boundaries and immutable configuration,
+and interchangeable model-neutral fit/predict call shapes using synthetic test doubles.
+The installed package also imports in a separate process from an empty unrelated
+directory with non-code reads, file writes, subprocess/network work blocked, no pandas
+or NumPy import, no stdout/stderr, and no created files.
+
+The public API consists of:
+
+- `RunConfig.validation()` / `.test()` for explicit UTC fitting boundaries.
+- `ForecastInputs(series, spot=None)` for caller-owned in-memory source tables.
+- The structural `Predictor.fit(data, *, config) -> FittedPredictor` interface.
+- `FittedPredictor.predict(data, *, origins=[...]) -> ForecastResult`, using one or
+  multiple origins without changing the caller's interface. Fitted implementations
+  expose `provenance` and must not refit during prediction.
+- `ForecastResult.forecasts` (the official-schema DataFrame) and `.provenance`, with
+  `FitProvenance`, `OriginProvenance`, and `ForecastProvenance` records.
+- `FORECAST_COLUMNS`, fixed horizon/resolution constants, `empty_forecast_frame()`, and
+  `check_forecast_schema()` for structural schema use. Optional fields already support
+  nullable UTC timestamps and text without signature/schema changes.
+
+The Protocols declare interfaces; they are not working model implementations. Input
+selection, provenance construction/availability enforcement, full forecast value and
+completeness checks, export, CLI execution, and official validator/scorer runs remain
+in their approved later steps. The schema helper is not a substitute for those checks.
+Frozen record envelopes do not make caller-owned DataFrames or mapping contents deeply
+immutable; concrete fitted-state immutability will be enforced in the fitting step.
 
 ## Step 2. Add explicit data loading and historical availability
 
@@ -141,8 +207,8 @@ SHA-256 hashes, fitting boundaries, provenance, counts, runtime and exit codes.
 
 ```text
 python -m unittest discover -s tests
-python -m turku_forecast validation --data-dir data --starter-dir . --output-dir baseline_output/engine/validation
-python -m turku_forecast test --data-dir data --starter-dir . --output-dir baseline_output/engine/test
+python -m forecast_engine validation --data-dir data --starter-dir . --output-dir baseline_output/engine/validation
+python -m forecast_engine test --data-dir data --starter-dir . --output-dir baseline_output/engine/test
 ```
 
 These engine commands do not exist yet. Validation invokes `make_templates.py` for its
@@ -215,5 +281,6 @@ changed files and actual test results, then stop. Each subsequent step requires
 explicit user approval before work begins. If a step reveals a material scope change,
 explain it before proceeding. Do not commit, push or merge unless explicitly requested.
 
-Only this planning document has been created. None of the proposed package files,
-commands or engine tests exists as a result of creating this plan.
+Step 1 is complete. Stop here until the user explicitly approves Step 2. The package
+foundation and tests exist; there is no actual fitting, prediction, data adapter, or
+engine CLI yet. No commit, push, or merge is authorized.
