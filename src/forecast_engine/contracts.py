@@ -7,7 +7,7 @@ complete-horizon/value enforcement and CSV export belong to the prediction step.
 
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 from .config import RunConfig
@@ -43,7 +43,7 @@ def check_forecast_schema(frame: "pd.DataFrame") -> None:
     """Check column order and types without coercion, repairs, or value validation.
 
     This is a foundation schema check, not the official validator or a guarantee
-    of complete/valid forecasts. Prediction will add those checks in Step 4.
+    of complete/valid forecasts. engine.validate_forecasts adds value/horizon checks.
     """
     import pandas as pd
     from pandas.api.types import is_bool_dtype, is_complex_dtype, is_integer_dtype, is_numeric_dtype
@@ -100,12 +100,15 @@ class OriginProvenance:
 
     Named source timestamps can later identify observations and their ages without
     making this public contract depend on a persistence model or exposing prices.
+    source_ages measures origin minus delivery time, so a published future-delivery
+    forecast has a negative age (lead time).
     """
 
     forecast_origin_utc: datetime
     max_first_usable_origin_utc: datetime | None = None
     source_timestamps_utc: Mapping[str, datetime] = field(default_factory=dict)
     dependencies: tuple["DependencyEvidence", ...] = ()
+    source_ages: Mapping[str, timedelta] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -133,7 +136,7 @@ class FittedPredictor(Protocol):
     origins contains one or more full-hour aware UTC datetimes. Every requested
     origin must receive all 40 steps or the call must fail clearly. Implementations
     select inputs available at each origin and return sorted official-schema rows.
-    No implementation is provided by the Step 1 foundation.
+    Concrete implementations are supplied separately in the models package.
     """
 
     @property

@@ -3,7 +3,7 @@
 Preserve persistence residuals, linear empirical quantiles and six-decimal historical
 frequencies. Unlike the reference, enforce delivery-period bounds, require evidence
 for every component, and retain complete value-free dependency lineage. Prediction
-is deliberately unimplemented until Step 4.
+reuses fitted statistics and the reference's deliberate quantile construction.
 """
 
 from collections.abc import Sequence
@@ -15,9 +15,11 @@ from typing import TYPE_CHECKING
 
 from ..availability import MissingEvidenceError, select_available, select_fitting_labels
 from ..config import HORIZON_STEPS, STEP_MINUTES, RunConfig
-from ..contracts import FitProvenance, ForecastInputs, ForecastResult
+from ..contracts import (
+    FitProvenance, ForecastInputs, ForecastProvenance, ForecastResult, empty_forecast_frame,
+)
 from ..data import normalize_long
-from ..provenance import derive_evidence, evidence_from_rows, fitting_provenance
+from ..provenance import derive_evidence, evidence_from_rows, fitting_provenance, origin_provenance
 
 if TYPE_CHECKING:
     import pandas as pd
@@ -72,12 +74,49 @@ class FittedPersistence:
         return tuple(self.provenance.counts[f"error_step_{step:02}"] for step in range(1, 41))
 
     def predict(self, data: ForecastInputs, *, origins: Sequence[datetime]) -> ForecastResult:
-        """Keep the agreed interface; actual prediction requires Step 4 approval."""
-        raise NotImplementedError("Persistence prediction is not implemented; Step 4 is required")
+        """Return all requested horizons and observation evidence without refitting."""
+        import numpy as np
+        import pandas as pd
+        from ..engine import _check_fitting_availability, _prepare_origins, _validate_result
+
+        requested = _prepare_origins(origins)
+        _check_fitting_availability(self.provenance, requested[0])
+        inputs = normalize_long(data.series)
+        imbalance = inputs.loc[inputs["series_id"] == _IMBALANCE]
+        offsets = pd.to_timedelta(np.arange(HORIZON_STEPS) * STEP_MINUTES, unit="min")
+        low, high = np.minimum(self.q10, 0.), np.maximum(self.q90, 0.)
+        parts, records = [], []
+        for origin in requested:
+            observed = _historical_observation(imbalance, origin)
+            if observed.empty:
+                raise MissingEvidenceError(
+                    f"persistence observation unavailable at origin {origin.isoformat()} (steps 1–40)"
+                )
+            p50 = round(float(observed["value"].iloc[0]), 4)
+            frame = empty_forecast_frame().reindex(range(HORIZON_STEPS))
+            frame["forecast_origin_utc"] = pd.Series([origin] * HORIZON_STEPS, dtype="datetime64[ns, UTC]")
+            frame["delivery_start_utc"] = origin + offsets
+            frame["step"] = np.arange(1, HORIZON_STEPS + 1, dtype="int64")
+            with np.errstate(over="ignore", invalid="ignore"):
+                frame["p10"] = np.round(p50 + low, 4)
+                frame["p90"] = np.round(p50 + high, 4)
+            frame["p50"] = p50
+            for name in ("p_up", "p_down", "p_none", "p_spike_high", "p_spike_low"):
+                frame[name] = getattr(self, name)
+            parts.append(frame)
+            observed_evidence = evidence_from_rows(
+                observed, name="persistence_observation", used_at_utc=origin,
+            )
+            records.append(origin_provenance(origin, [observed_evidence]))
+        result = ForecastResult(
+            pd.concat(parts, ignore_index=True), ForecastProvenance(self.provenance, tuple(records)),
+        )
+        _validate_result(result, requested)
+        return result
 
 
 def _historical_observation(imbalance: "pd.DataFrame", origin: datetime) -> "pd.DataFrame":
-    """Reference three-day search then all-earlier fallback, for calibration only."""
+    """Reference three-day search then all-earlier fallback, shared by fit/predict."""
     timestamps = imbalance["timestamp_utc"]
     lo = timestamps.searchsorted(origin - timedelta(days=3))
     hi = timestamps.searchsorted(origin, side="right")

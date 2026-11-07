@@ -189,7 +189,7 @@ class CalibrationTests(unittest.TestCase):
             self.fit(ForecastInputs(invalid, self.data.spot))
         self.assertNotIn("2.0", str(error.exception))
 
-    def test_repeatability_frozen_state_no_input_mutation_and_no_prediction_yet(self):
+    def test_repeatability_frozen_state_no_input_mutation(self):
         before_series, before_spot = self.data.series.copy(), self.data.spot.copy()
         fitted = self.fit()
         self.assertIsInstance(PersistencePredictor(), Predictor)
@@ -209,8 +209,6 @@ class CalibrationTests(unittest.TestCase):
         self.data.series["value"] = -999.
         self.data.spot["value"] = 999.
         self.assertEqual(saved, (fitted.q10, fitted.q90, dict(fitted.provenance.counts)))
-        with self.assertRaisesRegex(NotImplementedError, "Step 4"):
-            fitted.predict(self.data, origins=[self.config.fit_cutoff_utc])
 
     def test_provenance_has_no_values_and_statistic_repr_does_not_log_numbers(self):
         fitted = self.fit()

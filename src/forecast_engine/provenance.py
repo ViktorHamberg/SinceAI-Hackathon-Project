@@ -108,6 +108,7 @@ def origin_provenance(
         max_first_usable_origin_utc=max(s.first_usable_origin_utc for s in sources),
         source_timestamps_utc=timestamps,
         dependencies=evidence,
+        source_ages={name: origin - timestamp for name, timestamp in timestamps.items()},
     )
 
 
