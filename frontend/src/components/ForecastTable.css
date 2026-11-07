@@ -1,0 +1,25 @@
+.forecast-section { margin-top: 1.7rem; }
+.table-heading { display: flex; align-items: flex-start; justify-content: space-between; flex-direction: column; gap: .65rem; }
+.table-heading h2 { font-size: 1.125rem; font-weight: 650; letter-spacing: -.02em; margin-bottom: .4rem; }
+.table-heading p, .table-unit { font-size: .8125rem; color: var(--muted); margin-bottom: 0; line-height: 1.5; }
+.table-help { font-size: .75rem; color: var(--muted); line-height: 1.6; margin: .7rem 0; }
+.table-scroll { overflow: auto; max-height: 620px; border: 1px solid var(--control-line); background: var(--paper); }
+table { width: 100%; min-width: 680px; border-collapse: separate; border-spacing: 0; font-size: .875rem; }
+thead { position: sticky; top: 0; z-index: 2; }
+thead th { background: #eeefe9; font-weight: 600; text-align: left; padding: .8rem 1rem; border-bottom: 1px solid var(--control-line); }
+thead th span { display: block; font-size: .75rem; font-weight: 400; color: var(--muted); margin-top: .3rem; }
+tbody td, tbody th { padding: .7rem 1rem; border-bottom: 1px solid #e5e7e0; font-weight: 400; white-space: nowrap; }
+tbody tr:last-child td, tbody tr:last-child th { border-bottom: 0; }
+tbody .hour-start:not(:first-child) td, tbody .hour-start:not(:first-child) th { border-top: 1px solid #a6ada1; }
+.quarter { text-align: left; color: var(--muted); width: 64px; position: sticky; left: 0; background: var(--paper); }
+thead th:first-child { position: sticky; left: 0; z-index: 3; }
+.number { text-align: right; }
+.median { background: var(--orange-wash); font-weight: 650; }
+thead .median { border-bottom-color: #945209; }
+.table-notes { display: flex; flex-direction: column; gap: .3rem; margin-top: .8rem; }
+.table-notes p { margin: 0; font-size: .75rem; color: var(--muted); line-height: 1.6; }
+
+@media (min-width: 620px) {
+  .table-heading { align-items: flex-end; flex-direction: row; }
+  .table-notes { flex-direction: row; justify-content: space-between; gap: 1.5rem; }
+}

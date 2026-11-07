@@ -1,8 +1,9 @@
 # Application: incremental implementation plan
 
-**Status: Steps 1A and 1B implemented and verified on Windows. Step 1A passed independent
-review and was published by the user. Step 1B awaits independent review; Step 2 and
-later work are not authorized. The user confirmed on
+**Status: Steps 1A and 1B passed independent review and were published by the user.
+Step 2 is now split into 2A (API connection and table) and 2B (chart).
+The user authorized Step 2A on 7 November 2026; its implementation and checks are
+recorded below. Step 2B and later work require separate approval. The user confirmed on
 7 November 2026 that engine Step 6
 passed independent review and was published to GitHub. Older engine documents still
 describe that review as pending; this plan records the update without editing them.**
@@ -18,14 +19,15 @@ root path mentioned in AGENTS.md.
 ## Scope and first milestone
 
 Build a local decision-support application using Python/FastAPI, TypeScript/React/Vite,
-Tailwind CSS, Recharts and JSON REST. Steps 1A, 1B and 2 deliver a connection
-checkpoint: one genuine 40-step engine forecast shown in the browser as p50 and a
-p10–p90 band at a fixed historical origin. The first usable application milestone
+plain CSS files and JSON REST. Recharts is a candidate for Step 2B, subject to checking
+its interactions and negative-price support. Steps 1A, 1B and 2A connect one genuine
+40-step forecast to a browser table; Step 2B adds a p50 line and p10–p90 band at that
+fixed historical origin. The first usable application milestone
 finishes after Steps 3–4: select a historical origin and inspect its forecast,
 uncertainty and risk probabilities. Steps 5–6 add retrospective outcomes and final
 usability/demo refinement.
 
-Step 1 is split into two independently checked and approved halves. Step 3 adds
+Steps 1 and 2 are split into independently checked and approved halves. Step 3 adds
 origin selection separately from Step 5's actual-outcome comparison. Each step or
 half ends with a short explanation of what now works, actual checks, a reviewer
 handoff and a stop for explicit approval. Later steps can be split further before
@@ -309,18 +311,105 @@ versions are recorded in private evidence rather than claimed fully locked.
 **Engine change proposals: None.** Stop for independent review and explicit Step 2
 approval. No frontend, commit, push or merge is authorized by these results.
 
-## Step 2. Display the forecast and uncertainty in the browser
+## Step 2A. Connect the browser and display the forecast table
 
 **Objective and implementation:** Create the Vite React/TypeScript frontend with
-Tailwind and Recharts. Fetch `/api/forecast` through the development proxy. Define
+styles in actual CSS files, as requested by the user. Fetch `/api/forecast` through
+the development proxy. Define
 application-owned TypeScript response types and validate essential response shape at
 the boundary so malformed or incomplete data produces an error state.
 
 The user's visual reference is Turku Energia's website: a white background, charcoal
 text and restrained warm-orange accents, with supporting colours only where useful.
-Use our own clear layout and prioritize simple controls, readable charts and solid
-functionality. This is a design direction for the frontend step, not frontend work
-authorized as part of the backend milestones.
+Use our own clear layout and prioritize simple controls, readable values and solid
+functionality. Add no chart dependency or empty chart placeholder in this half.
+
+Show all 40 quarters in an accessible table, with exact p10/p50/p90 values, EUR/MWh
+units, origin, full ten-hour window, historical replay status and model/run identity.
+Keep optional details collapsible. Use explicit Europe/Helsinki offsets with UTC in
+timestamp tooltips, retaining UTC instants as row keys. Include loading, sanitized
+network/HTTP/malformed-response errors, timeout and retry. Clear previous data during
+reload; ignore cancelled/stale responses. Never use a runtime mock fallback.
+
+**Expected new files:** `frontend/{package.json,package-lock.json,.nvmrc,index.html,
+vite.config.ts,tsconfig.json,README.md}`, `frontend/src/{main.tsx,App.tsx,App.css,
+index.css,favicon.svg,time.ts}`, `frontend/src/api/forecast.ts`,
+`frontend/src/components/{ForecastTable.tsx,ForecastTable.css}`, focused API/App/table/
+time tests and `frontend/src/test/` setup/synthetic fixtures. Backend/engine code and
+the public API contract remain unchanged. Existing root ignore rules cover outputs.
+
+**Verify:** Run frontend tests, TypeScript checking and production build. Test negative
+prices, all 40 rows, response rejection, reload/retry, cancelled requests, midnight and
+the repeated Helsinki hour on 25 October. Run the existing backend tests. Open the real
+backend/frontend, inspect displayed values, units, metadata and browser requests; check
+desktop/narrow widths and keyboard navigation. State any browser verification limits.
+
+**After this half:** A genuine forecast is readable in the browser. Stop for independent
+review and explicit Step 2B approval. This does not authorize a chart or later features.
+
+**Acceptance criteria:** Document reproducible Windows/macOS setup with a lockfile;
+verify on available systems and state untested platforms. All 40 rows are accessible,
+the UI preserves values and UTC identity, and failures never present stale/partial data
+as the requested forecast. No source datasets or actuals enter client assets or HTTP.
+
+### Step 2A result and verification
+
+Implemented the frontend files above using React 19.3.1, Vite 8.3.6 and TypeScript
+7.0.2. Dependency versions are pinned and the npm lockfile is included. CSS remains
+in three CSS files; Tailwind and chart dependencies were not added. The current
+table will remain the accessible exact-value view when Step 2B adds the chart.
+The API boundary rejects unsupported structure, incomplete horizons, invalid values
+or timestamps; errors show fixed messages. Request cleanup cancels/ignores stale
+responses, and reload clears the previous view. Backend/engine code is unchanged.
+
+Windows checks used Node 24.13.0, npm 11.6.2 and the existing Python 3.14.2 environment:
+
+```powershell
+# From frontend/:
+npm.cmd ci --offline --no-audit --no-fund
+npm.cmd run test -- --run
+npm.cmd run typecheck
+npm.cmd run build
+# From the repository root:
+.\.venv\Scripts\python.exe -W error::FutureWarning -m unittest discover -s backend/tests -q
+git diff --check
+```
+
+All 34 frontend tests and 27 backend tests passed. TypeScript checking and production
+build passed, including another build/test run after clean lockfile installation from
+the local npm cache. Synthetic tests cover precise/negative prices, all 40 quarters,
+malformed responses, HTTP/network/JSON failure, timeout/cancellation, retry, stale
+responses, midnight and repeated Helsinki-hour offsets.
+
+A real backend on an author-owned port 8001 was checked through both Vite development
+and production-preview proxies. Direct, proxied and repeated forecast bodies were
+byte-identical; each contained 40 points and no restricted spot/actuals fields.
+Attempts to retrieve data files yielded denial, 404 or the frontend HTML fallback,
+never dataset bytes. Built HTML, CSS, JavaScript and the local icon loaded successfully.
+Brave rendered all 40 real quarters, Helsinki labels and the full ten-hour window;
+the final production preview console showed zero messages. An initial development
+favicon 404 was corrected with the local SVG icon.
+
+Pre/post hashes confirmed 52 engine/backend/original-tool/config files unchanged.
+The shared root ignore rules cover dependencies, build/test outputs, secrets and data;
+no ignore edit was needed. Safe private evidence and review handoff are under
+`baseline_output/application/step-2a-01/`. The real backend reported engine revision
+`sha256:437e2978eeba10a2eb61a08bb22a3cf5c6387e3ba5cf928b072f0c2fa386d639`.
+
+macOS and fresh online provisioning were not verified. Browser-access automation was
+unavailable; desktop Brave was used instead. A complete browser Network-panel audit,
+narrow-width walkthrough and keyboard-only/retry walkthrough remain manual checks
+for the user/reviewer; automated component/HTTP checks do not replace those checks.
+The engine suite was not rerun for this frontend-only change; backend tests and real
+integration passed, and engine sources/tests were unchanged. No forecast-accuracy
+improvement is claimed. **Engine change proposals: None.** Stop for independent review
+and explicit Step 2B approval; no commit, push or merge was performed.
+
+## Step 2B. Add the price chart and uncertainty band
+
+**Objective and implementation:** Reuse Step 2A's API module, time helpers, request
+states, page layout and accessible table. Select the chart library against required
+interactions; Recharts remains a candidate. Keep styling in CSS files.
 
 Render p50 as a line and p10–p90 as an interval over all 40 delivery quarters, with
 EUR/MWh units, legend and exact-value tooltips. Use a range area or equivalent band
@@ -332,14 +421,11 @@ as chart keys and offer UTC in tooltips. The user's machine timezone must not ch
 which forecast is shown. Include loading, API failure, malformed response and retry
 states; stale charts must not appear to represent a newly requested result.
 
-**Expected new files:** `frontend/{package.json,package-lock.json,index.html,
-vite.config.ts,tsconfig*.json,README.md}`, `frontend/src/{main.tsx,App.tsx,
-index.css}`, `frontend/src/api/forecast.ts`, `frontend/src/components/ForecastChart.tsx`,
-`frontend/src/time.ts`, and focused API/chart/time tests beside these modules.
-Modify only backend documentation if the joint startup instructions need clarification.
+**Expected new files:** `frontend/src/components/{ForecastChart.tsx,ForecastChart.css}`
+and focused chart tests. Modify App/styles, package/lock files and the frontend guide
+as needed. Preserve the table as the accessible exact-value view.
 
-**Verify:** Declare a small frontend test setup such as Vitest and React Testing
-Library in the frontend package. Check response validation, loading/error/retry,
+**Verify:** Reuse the existing frontend test setup. Check chart interaction,
 negative and crossing-zero bands, origin/delivery labels and timezone formatting.
 Use synthetic fixtures for component tests, including the repeated Helsinki hour on
 25 October and dates crossing midnight. Run TypeScript checking and production build.
@@ -473,7 +559,7 @@ refit, and actuals/prediction separation is verified.
 **Objective and implementation:** Refine the complete workflow for an energy expert:
 readable responsive layout, keyboard-accessible selection, clear legends/units,
 non-colour cues, concise metric definitions, empty states and recoverable errors.
-Add an accessible tabular view of quarter-hour values and a short guided route from
+Refine the accessible table introduced in Step 2A and add a short guided route from
 situational overview to a chosen delivery and historical outcome. Include model
 identifier, fit cutoff and historical replay status so a snapshot is not mistaken for
 a live forecast.
@@ -488,8 +574,8 @@ Finish setup/troubleshooting and a short local demo checklist, including licence
 private-data placement and post-event deletion. This step prepares a usable application
 demo; recording the final video, slides and submission packaging remain separate tasks.
 
-**Expected new files:** `frontend/src/components/{ForecastTable,ForecastEvidence}.tsx`
-if required, associated tests, and `docs/application-demo.md`. Modify application
+**Expected new files:** `frontend/src/components/ForecastEvidence.tsx`
+if required, associated tests, and `docs/application-demo.md`. Modify the existing table, application
 components/styles, local guides and allowlisted backend metadata only where necessary.
 Do not expand the public engine contract for optional explanations.
 
@@ -512,9 +598,9 @@ passes, and remaining limits are recorded without claiming unmeasured Level 2 po
 
 ## Local execution and verification contract
 
-These are planned commands to make concrete and verify in Steps 1A, 1B and 2, not commands run
-while drafting. Run from the repository root using Python 3.11+ and the existing
-environment. Verify Node/npm compatibility when selecting Vite and lock versions then.
+The individual step results record checks actually run; these commands summarize the
+local workflow. Run from the repository root using Python 3.11+ and the existing
+environment. The frontend guide records the selected Node/npm versions and lockfile.
 The engine guide remains the source for engine installation and private input setup.
 
 ```bash
@@ -535,7 +621,8 @@ npm run typecheck
 npm run build
 ```
 
-On Windows use `.venv\Scripts\python.exe` for Python commands. Test both platforms
+On Windows use `.venv\Scripts\python.exe` for Python commands and `npm.cmd` for npm.
+Test both platforms
 when available and report what remains unverified. Each guide must specify actual
 required configuration, paths, supported versions, proxy port and browser URL. Runtime
 data stays outside frontend assets; local HTTP responses do not require persisted
@@ -544,8 +631,8 @@ forecast exports. No Docker, database or deployment setup is required.
 ## Step completion and review
 
 Implement only the next explicitly authorized step or half, then stop. An instruction
-to begin "Step 1" starts Step 1A only; Step 1B requires separate approval after its
-predecessor's handoff. Supply a handoff with
+to begin "Step 1" starts Step 1A only; the same rule applies to Step 2A. Each second
+half requires separate approval after its predecessor's handoff. Supply a handoff with
 scope, exact changed files, rationale, branch/base/HEAD, engine revision, actual checks
 and results, local evidence locations and limitations. Keep private outputs ignored.
 Include any **ENGINE CHANGE PROPOSAL** and its coordination status, or explicitly
@@ -554,5 +641,5 @@ Use [the independent review workflow](REVIEW.md); obtain approval for the affect
 candidate before any separately authorized push. An approved roadmap or review verdict
 does not authorize implementation of the next step, committing, pushing or merging.
 
-The roadmap was initially a planning-only change. Steps 1A and 1B's separately authorized
-implementation and actual verification are recorded above; later steps remain gated.
+The roadmap was initially a planning-only change. Steps 1A, 1B and 2A's separately
+authorized implementation and actual verification are recorded above; later steps remain gated.
