@@ -95,6 +95,69 @@ def _fold_actuals(data, fold):
     return actuals
 
 
+def _select_model(name):
+    if name == "persistence":
+        return PersistencePredictor(), "persistence-v1"
+    from ..models.lightgbm import LightGBMPredictor
+
+    mode = {"lightgbm-direct": "direct", "lightgbm-relative": "spot_relative"}[name]
+    return LightGBMPredictor(target_mode=mode), f"{name}-v1"
+
+
+def _model_configuration(predictor, fitted):
+    """Allowlisted recipe metadata only; never serialize arbitrary predictor state."""
+    from ..models.lightgbm import LightGBMPredictor, FittedLightGBM
+
+    if not isinstance(predictor, LightGBMPredictor) or not isinstance(fitted, FittedLightGBM):
+        return {"kind": "persistence" if type(predictor) is PersistencePredictor else "custom"}
+    heads = []
+    for path, components in (("primary", fitted._heads), ("direct_backup", fitted._direct_heads)):
+        for head in components:
+            parameters = predictor.recipe.parameters()
+            parameters["objective"] = head.objective
+            if head.classes:
+                parameters["num_class"] = len(head.classes)
+            else:
+                parameters["alpha"] = {"p10": .1, "p50": .5, "p90": .9}[head.name]
+            heads.append({"component_id": f"{path}_{head.name}", "model_sha256": head.fingerprint,
+                          "target_mode": "direct" if path == "direct_backup" else
+                              predictor.target_mode if not head.classes else "classification",
+                          "features": list(head.feature_names), "classes": list(head.classes),
+                          "parameters": parameters, "num_boost_round": predictor.recipe.num_boost_round,
+                          "native_version": head.native_version})
+    return {"kind": "lightgbm", "target_mode": predictor.target_mode,
+            "registry_version": fitted._registry_version, "quantile_policy": fitted._quantile_policy,
+            "min_training_rows": predictor.min_training_rows,
+            "fallback_policy": "fitted_direct_price_when_delivery_spot_unavailable" if
+                predictor.target_mode == "spot_relative" else "none",
+            "heads": heads}
+
+
+def _path_counts(data, origins, result, configuration):
+    """Availability counts expose no spot values. Path counts come from used evidence."""
+    import pandas as pd
+
+    available = 0
+    if data.spot is not None:
+        spot = data.spot.loc[data.spot.series_id.eq("fi_spot_price") & data.spot.value.notna()]
+        for origin in origins:
+            available += int((spot.first_usable_origin_utc.le(origin) & spot.timestamp_utc.ge(origin)
+                              & spot.timestamp_utc.lt(origin + pd.Timedelta(hours=10))).sum())
+    counts = {"delivery_spot_available": available,
+              "delivery_spot_unavailable": len(result.forecasts) - available}
+    if configuration.get("kind") == "lightgbm":
+        relative = sum(e.name.startswith("lightgbm_price_spot_relative_step_")
+                       for row in result.provenance.inference for e in row.dependencies)
+        backup = sum(e.name.startswith("lightgbm_price_direct_backup_step_")
+                     for row in result.provenance.inference for e in row.dependencies)
+        is_relative = configuration["target_mode"] == "spot_relative"
+        if is_relative and (relative != available or relative + backup != len(result.forecasts)):
+            raise ValueError("price path evidence and delivery spot availability disagree")
+        counts.update(spot_relative=relative, direct_backup=backup,
+                      direct=0 if is_relative else len(result.forecasts))
+    return counts
+
+
 def run_experiment(*, starter_dir, data_dir, output_dir, fold=None,
                    predictor=None, recipe_id=None):
     """Run validation (fold=None) or a Step 1B ChronologicalFold.
@@ -140,11 +203,18 @@ def run_experiment(*, starter_dir, data_dir, output_dir, fold=None,
     started = time.perf_counter()
     try:
         manifest["environment"] = evaluation._environment()
+        from importlib.metadata import PackageNotFoundError, version
+        for name in ("lightgbm", "scipy", "narwhals"):
+            try:
+                manifest["environment"]["dependencies"][name] = version(name)
+            except PackageNotFoundError:
+                manifest["environment"]["dependencies"][name] = None
         for name, path in (("inputs", inputs), ("spot", spot),
                            ("validator", starter / "validate_submission.py"),
                            ("scorer", starter / "score.py")):
             manifest["consumed_files"][name] = evaluation._file_record(path)
-        for name in ("README.md", "requirements.txt", "pyproject.toml", "availability.csv", "baseline.ipynb"):
+        for name in ("README.md", "requirements.txt", "pyproject.toml", "requirements-dev.in",
+                     "requirements-dev.lock", "availability.csv", "baseline.ipynb"):
             path = starter / name
             if path.is_file():
                 manifest["consumed_files"][name] = evaluation._file_record(path)
@@ -159,12 +229,14 @@ def run_experiment(*, starter_dir, data_dir, output_dir, fold=None,
         if fitted.provenance.config != config:
             raise ValueError("predictor returned a different fitting configuration")
         manifest["timings"]["fit"] = time.perf_counter() - stage_start
+        manifest["model_configuration"] = _model_configuration(predictor, fitted)
         manifest["stage"] = "predict"
         stage_start = time.perf_counter()
         result = forecast(fitted, data, origins=origins)
         manifest["timings"]["predict"] = time.perf_counter() - stage_start
         manifest["provenance"] = evaluation._safe_provenance(result)
         manifest["forecast_rows"] = len(result.forecasts)
+        manifest["price_paths"] = _path_counts(data, origins, result, manifest["model_configuration"])
         manifest["stage"] = "export"
         submission = export_forecasts(result.forecasts, output / "forecast_backtest.csv", origins=origins)
         origins_path = output / "forecast_origins.csv"
@@ -223,14 +295,18 @@ class _Parser(argparse.ArgumentParser):
 def main(argv=None):
     parser = _Parser(description="Private chronological experiment using unchanged official tools.")
     parser.add_argument("--period", choices=("validation", "fold-1", "fold-2"), default="validation")
+    parser.add_argument("--model", choices=("persistence", "lightgbm-direct", "lightgbm-relative"),
+                        default="persistence")
     parser.add_argument("--starter-dir", type=Path, default=Path("."))
     parser.add_argument("--data-dir", type=Path, default=Path("data"))
     parser.add_argument("--output-dir", type=Path, required=True)
     options = parser.parse_args(argv)
     fold = None if options.period == "validation" else expanding_window_folds()[int(options.period[-1]) - 1]
     try:
+        predictor, recipe_id = _select_model(options.model)
         manifest = run_experiment(starter_dir=options.starter_dir, data_dir=options.data_dir,
-                                  output_dir=options.output_dir, fold=fold)
+                                  output_dir=options.output_dir, fold=fold,
+                                  predictor=predictor, recipe_id=recipe_id)
     except Exception as error:
         print(f"Experiment failed ({type(error).__name__}); inspect the safe run manifest if created.", file=sys.stderr)
         return 1

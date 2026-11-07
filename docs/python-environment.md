@@ -87,7 +87,7 @@ Configure your IDE to use that interpreter. Keep `.venv` and generated data igno
 
 | Owner | Source of truth |
 |---|---|
-| Engine | `pyproject.toml`: core dependencies; future optional `ml` extra |
+| Engine | `pyproject.toml`: core dependencies and optional `ml` extra |
 | Backend | `backend/requirements.txt`: existing backend pins |
 | Shared development tools and migration constraints | `requirements-dev.in` |
 | Starter package | Original `requirements.txt`, preserved unchanged |
@@ -118,11 +118,14 @@ setup is shared work: announce changes, compatibility impact and required action
 adoption, following the roadmap's cross-boundary protocol. Test Windows on Windows;
 a universal resolution alone is not execution verification on both OSes.
 
-LightGBM is not added or installed by this setup. When Step 2 and its dependency are
-approved, declare its optional extra in `pyproject.toml`, change `-e .` here to
-`-e .[ml]`, regenerate the combined lock and verify both OSes/native prerequisites.
-Do not add it separately to backend requirements. No forecasting interface changes
-are needed for package synchronization.
+The separately approved Step 2A setup now enables `-e .[ml]` in the combined input.
+It adds LightGBM 4.7.0, SciPy 1.18.1 and Narwhals 2.28.0 through the shared lock,
+preserving the earlier package versions. The synchronized environment has 34 packages.
+macOS needs OpenMP (`brew install libomp`); 64-bit Windows may need the Microsoft
+Visual C++ runtime. See the [engine experiment guide](../src/forecast_engine/experiments/README.md#optional-lightgbm-direct-price-model-steps-2a2b).
+Native LightGBM import is verified on macOS; Windows verification is pending. Do not
+add LightGBM separately to backend requirements. Persistence remains importable without
+the optional library, and the application's default predictor is unchanged.
 
 ## Checks before sharing dependency changes
 

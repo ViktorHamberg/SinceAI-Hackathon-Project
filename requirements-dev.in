@@ -2,7 +2,7 @@
 # Component owners edit their own manifests, then regenerate requirements-dev.lock.
 -r requirements.txt
 -r backend/requirements.txt
--e .
+-e .[ml]
 
 # Development build tools for the editable package (not forecasting runtime imports).
 setuptools>=64

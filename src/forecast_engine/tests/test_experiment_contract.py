@@ -2,6 +2,7 @@
 
 from contextlib import redirect_stderr, redirect_stdout
 from io import StringIO
+import importlib.util
 import json
 from pathlib import Path
 import shutil
@@ -176,6 +177,59 @@ class ExperimentTests(unittest.TestCase):
             run.main(["--period", "SENSITIVE_9876543.21"])
         self.assertEqual(caught.exception.code, 2)
         self.assertNotIn("SENSITIVE", error.getvalue())
+
+    def test_cli_selection_is_explicit_and_default_remains_persistence(self):
+        for name in (None, "persistence", "lightgbm-direct", "lightgbm-relative"):
+            arguments = ["--output-dir", str(self.output)]
+            if name is not None:
+                arguments.extend(["--model", name])
+            with patch.object(run, "run_experiment", return_value={"forecast_rows": 80}) as execute, \
+                 redirect_stdout(StringIO()):
+                self.assertEqual(run.main(arguments), 0)
+            selected = name or "persistence"
+            self.assertEqual(execute.call_args.kwargs["recipe_id"], f"{selected}-v1")
+            predictor = execute.call_args.kwargs["predictor"]
+            if selected == "persistence":
+                self.assertIsInstance(predictor, PersistencePredictor)
+            else:
+                self.assertEqual(predictor.target_mode, "direct" if selected.endswith("direct") else "spot_relative")
+        with redirect_stderr(StringIO()), self.assertRaises(SystemExit):
+            run.main(["--model", "unknown", "--output-dir", str(self.output)])
+
+    @unittest.skipUnless(importlib.util.find_spec("lightgbm") is not None, "optional LightGBM not installed")
+    def test_both_models_run_official_tools_and_record_safe_reproducible_configuration(self):
+        from forecast_engine.tests.test_lightgbm import ml_fixture
+
+        data, config, _ = ml_fixture()
+        data.series.to_csv(self.data_dir / "inputs.csv", index=False)
+        data.spot.to_csv(self.data_dir / "spot_nordpool.csv", index=False)
+        self.fold = ChronologicalFold(config, config.fit_cutoff_utc,
+                                      config.fit_cutoff_utc + pd.Timedelta(hours=2))
+        for name in ("lightgbm-direct", "lightgbm-relative"):
+            predictor, identity = run._select_model(name)
+            self.output = self.root / name
+            manifest = self.invoke(predictor=predictor, recipe_id=identity)
+            self.assertEqual(manifest["status"], "complete")
+            self.assertTrue(all(isinstance(manifest["metrics"][metric], float) for metric in run.METRICS))
+            model = manifest["model_configuration"]
+            relative = name.endswith("relative")
+            self.assertEqual(len(model["heads"]), 8 if relative else 5)
+            for head in model["heads"]:
+                self.assertEqual(head["num_boost_round"], 30)
+                self.assertEqual(head["parameters"]["seed"], 2026)
+                self.assertEqual(head["parameters"]["num_threads"], 1)
+                self.assertEqual(len(head["model_sha256"]), 64)
+                self.assertIn("horizon_step", head["features"])
+                self.assertTrue(head["native_version"])
+            paths = manifest["price_paths"]
+            self.assertEqual(paths["delivery_spot_available"], 76)
+            self.assertEqual(paths["delivery_spot_unavailable"], 4)
+            self.assertEqual(paths["spot_relative"], 76 if relative else 0)
+            self.assertEqual(paths["direct_backup"], 4 if relative else 0)
+            self.assertEqual(paths["direct"], 0 if relative else 80)
+            serialized = json.dumps(manifest)
+            self.assertNotIn("_model_text", serialized)
+            self.assertNotIn('"spot_price":', serialized)
 
     def test_import_has_no_heavy_imports_or_io(self):
         script = '''
