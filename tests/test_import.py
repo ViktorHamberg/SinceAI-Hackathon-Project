@@ -29,6 +29,9 @@ class ImportTests(unittest.TestCase):
 
             sys.addaudithook(audit)
             import forecast_engine
+            import forecast_engine.data
+            import forecast_engine.availability
+            import forecast_engine.provenance
             assert "pandas" not in sys.modules
             assert "numpy" not in sys.modules
             assert len(forecast_engine.FORECAST_COLUMNS) == 13

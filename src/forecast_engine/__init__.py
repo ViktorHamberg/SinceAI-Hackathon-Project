@@ -1,6 +1,14 @@
 """Model-independent forecasting contracts; no data loading or model execution on import."""
 
 from .config import HORIZON_STEPS, STEP_MINUTES, RunConfig
+from .data import load_input_data, load_inputs, load_spot_prices, normalize_long
+from .availability import (
+    MissingEvidenceError, rows_available_at, select_available, select_fitting_labels,
+)
+from .provenance import (
+    DependencyEvidence, SourceDependency, derive_evidence, evidence_from_rows,
+    fitting_provenance, origin_provenance,
+)
 from .contracts import (
     FORECAST_COLUMNS,
     FitProvenance,
@@ -19,4 +27,8 @@ __all__ = [
     "FitProvenance", "FittedPredictor", "ForecastInputs", "ForecastProvenance",
     "ForecastResult", "OriginProvenance", "Predictor", "check_forecast_schema",
     "empty_forecast_frame",
+    "load_input_data", "load_inputs", "load_spot_prices", "normalize_long",
+    "MissingEvidenceError", "rows_available_at", "select_available", "select_fitting_labels",
+    "DependencyEvidence", "SourceDependency", "derive_evidence", "evidence_from_rows",
+    "fitting_provenance", "origin_provenance",
 ]

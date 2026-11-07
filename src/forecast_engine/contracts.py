@@ -14,6 +14,7 @@ from .config import RunConfig
 
 if TYPE_CHECKING:
     import pandas as pd
+    from .provenance import DependencyEvidence
 
 FORECAST_COLUMNS = (
     "forecast_origin_utc", "delivery_start_utc", "step", "p10", "p50", "p90",
@@ -90,6 +91,7 @@ class FitProvenance:
     counts: Mapping[str, int] = field(default_factory=dict)
     max_first_usable_origin_utc: datetime | None = None
     latest_label_delivery_utc: datetime | None = None
+    dependencies: tuple["DependencyEvidence", ...] = ()
 
 
 @dataclass(frozen=True)
@@ -103,6 +105,7 @@ class OriginProvenance:
     forecast_origin_utc: datetime
     max_first_usable_origin_utc: datetime | None = None
     source_timestamps_utc: Mapping[str, datetime] = field(default_factory=dict)
+    dependencies: tuple["DependencyEvidence", ...] = ()
 
 
 @dataclass(frozen=True)
