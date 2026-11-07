@@ -1,14 +1,12 @@
-import { lazy, Suspense, useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { fetchOrigins, fetchSelectedForecast, requestErrorMessage } from './api/forecast';
 import type { ForecastResponse, OriginsResponse } from './api/forecast';
 import ForecastTable from './components/ForecastTable';
-import ChartBoundary from './components/ChartBoundary';
+import ForecastAnalysis from './components/ForecastAnalysis';
 import OriginSelector from './components/OriginSelector';
 import { deliveryWindowEnd, formatTimestamp } from './time';
 import type { DisplayZone } from './time';
 import './App.css';
-
-const ForecastChart = lazy(() => import('./components/ForecastChart'));
 
 type LoadState = { status: 'loading' } | { status: 'error'; message: string } | { status: 'ready'; forecast: ForecastResponse };
 type CatalogState = { status: 'loading' } | { status: 'error' } | { status: 'ready'; catalog: OriginsResponse };
@@ -130,11 +128,7 @@ export default function App() {
             </dl>
           </section>
 
-          <ChartBoundary key={`chart/${state.forecast.run_id}/${state.forecast.forecast_origin_utc}`}>
-            <Suspense fallback={<section className="chart-loading" role="status">Loading price chart. The full forecast is available in the table below.</section>}>
-              <ForecastChart points={state.forecast.points} zone={zone} />
-            </Suspense>
-          </ChartBoundary>
+          <ForecastAnalysis key={`analysis/${state.forecast.run_id}/${state.forecast.forecast_origin_utc}`} points={state.forecast.points} zone={zone} />
           <ForecastTable key={`table/${state.forecast.run_id}/${state.forecast.forecast_origin_utc}`} points={state.forecast.points} zone={zone} />
 
           <details className="run-details">

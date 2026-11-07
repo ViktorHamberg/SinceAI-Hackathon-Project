@@ -45,8 +45,8 @@ Verification and remaining limits belong in the roadmap and independent-review h
 - React owns one selection index for mouse, tap and keyboard. Recharts supplies plotting
   and resize behavior; its built-in interaction layer is disabled to avoid competing
   selection states. Shared plot dimensions keep hit-testing aligned with the axes.
-- Hover updates only this chart component, only when the quarter changes. There is no
-  inspection animation, no per-pointer update to the App/table and no extra HTTP call.
+- Hover updates only when the quarter changes. Step 4 shares that selection within
+  ForecastAnalysis; App/table remain separate. There is no inspection animation or extra API call.
 - Vertical touch swipes continue page scrolling. A tap selects the touched period;
   Left/Right/Home/End give the same choice through one keyboard tab stop.
 - The plotting library is a separate lazy-loaded chunk. The table remains available
@@ -72,3 +72,22 @@ issue time; no decorative animation, new imagery, neon palette or fake live feed
   list handles closely spaced and repeated local times through UTC-valued options.
 - Selected snapshots clear during loading/error, share one identity check and update
   context/chart/table together. New origins reset quarter inspection and table scrolling.
+
+## Step 4 probability and summary decisions
+
+Keep the established ENERGY 1 / RHYTHM 2 / MOTION 1 and company palette. The supplied
+inspiration images are references for clear groupings and aligned timelines, not an
+instruction to add multiple interval bands, observed outcomes, a buy meter or a redesign.
+
+- A compact summary group answers which delivery quarters have the highest predicted
+  exceptional-price probabilities and widest interval. Matching metric structure makes
+  these comparisons readable; each result links to actual returned quarters.
+- Up/down/none and high/low events get separate probability panels to preserve their
+  meanings. Fixed 0–100% axes and matching time geometry aid comparison with prices.
+- Brown, charcoal and muted strokes reuse the palette; solid/dashed/dotted styles
+  distinguish categories without treating colors as danger or trade recommendations.
+- Shared quarter inspection is the only movement. Native exact selection and details
+  preserve access if plotting fails. No animations, new assets or external services.
+- Flat signals and tied maxima are stated explicitly, including the current persistence
+  baseline. Summary labels are per-quarter and descriptive; no horizon-event probability,
+  causal story or arbitrary alert threshold is inferred.
