@@ -183,10 +183,10 @@ explicit; no probabilities are invented for absent classes.
 
 P50 is preserved: P10 is clamped down to P50 if needed and P90 up to P50. Independent
 raw quantiles can therefore collapse the interval; tests verify this explicit policy.
-There is no calibration or `top_drivers` attribution yet. The fitted record stores
-target/registry/recipe/policy identity privately for the later attribution step, which
-can recover raw head predictions from the same model strings. No new result fields
-or application source changes are included. Each relative prediction records a named,
+There is no calibration yet; verified P50 driver attribution is described below.
+The fitted record stores target/registry/recipe/policy identity privately for
+attribution and recovers raw head predictions from the same model strings. No new
+result fields are introduced. Each relative prediction records a named,
 value-free dependency for every step identifying the relative or direct-backup path.
 Offset evidence remains distinct from learned feature evidence. Fitting provenance
 separately identifies relative-label pairs and direct-backup labels.
@@ -201,7 +201,10 @@ strings. Compare all four official metrics, coverage and per-task matched counts
 with `timings.fit` and `timings.predict`; a faster or lower-MAE run alone does not
 establish overall superiority.
 
-Run the package-local and existing engine tests before a review handoff:
+Select focused tests and affected consumer checks for each change, following the
+roadmap's standing test selection rule. Run broader suites only when the impact or
+acceptance criteria justify them; these are available commands, not a requirement
+to run both for every edit:
 
 ```bash
 .venv/bin/python -W error::FutureWarning -m unittest discover -s src/forecast_engine/tests -t src -v
@@ -212,5 +215,152 @@ Full-data acceptance compares fresh persistence, direct and relative runs on ide
 origins, fitting boundaries, source hashes and scoring-actuals hashes. Keep reports in
 ignored run directories and report all metric deltas, coverage, matched counts, spot
 availability and backup use. Do not promote a model automatically. Windows execution
-and broader feature/recipe tuning require their own verification. Step 3 attribution
-and the final test submission are separate authorized steps.
+and broader feature/recipe tuning require their own verification. Private contributions
+and P50 driver labels are described below; the final test submission remains separate.
+
+## Private contributions (Step 3A)
+
+Internal experiments/tests can explicitly call the private helper on a fitted candidate:
+
+```python
+from forecast_engine.explainability.contributions import _explain
+
+private_batch = _explain(fitted, data, origins=[RunConfig.validation().fit_cutoff_utc])
+```
+
+Calling this explicit helper does not modify predictions, populate `top_drivers`, attach
+data to result frames, or provide an application explanation API. Do not print/serialize `private_batch` or its
+records. They contain numeric information that can reveal restricted spot prices.
+Frozen records contain only immutable tuples/scalars and suppress all fields in repr;
+this is not permission to publish their contents with a generic serializer.
+
+The calculation uses the same registered as-of features, saved model strings, active
+price path and all saved iterations as prediction. Metadata identifies the head/class,
+model fingerprint, immutable recipe, native version, actual iteration count, origin,
+delivery, step, registry, target mode, scale and output. A model can finish with fewer
+trees than the requested round budget when no further splits are possible; records use
+the actual saved iteration count.
+
+Native feature contributions plus the base reconstruct the raw head output. Price
+heads use EUR/MWh; relative-head contributions explain the spread. A separate private
+ledger records the published delivery spot offset, active direct-backup path, current
+identity calibration and P50-preserving outer-bound clamp. The offset belongs to
+`spot_price_conditions` but is not a learned feature effect and is not folded into
+learned category sums. Direction/spike records explain raw class margins; softmax
+records all class margins and the resulting probability separately. They are not
+additive probability-point contributions.
+
+Signed registry category sums preserve feature-level cancellation. No category ranking
+or public label selection is implemented in 3A. Verified records are in
+`private_batch.records`; component-specific failures are value-free reason codes in
+`private_batch.unavailable`. Unsupported predictor/transformation policies fail with a
+fixed `AttributionUnavailable` reason. Unverified native shapes, class mappings, linear
+trees, objectives or additive identities never receive guessed explanations. Later
+callers must check unavailable components before claiming a complete P50 explanation.
+These helpers currently support the existing uncalibrated ordinary GBDT
+heads only; future transformations must extend verification before being explained.
+
+`_compare_contributions(earlier, later)` compares records for the same delivery/head
+at consecutive hourly origins, requiring identical model fingerprint, recipe, active
+component, registry, class and scale. It retains both original ledgers, signed feature/
+category deltas, base/raw/output deltas and reconstruction-offset delta. Raw deltas have
+the original raw unit; output deltas have the output unit. A switch to another active
+head is unavailable for this comparison. Differences describe model contributions from
+genuine origin-time predictions; they do not establish revised upstream forecast
+vintages or physical causation.
+
+Focused checks for 3A:
+
+```bash
+.venv/bin/python -W error::FutureWarning -m unittest forecast_engine.tests.test_explainability -v
+.venv/bin/python -W error::FutureWarning -m unittest forecast_engine.tests.test_model_compatibility -v
+```
+
+The second module checks the unchanged public caller/backend serializer and native
+export through the official validator/scorer on synthetic data. A full-data retraining
+comparison is not required for this private helper alone. Full-data performance and
+quality claims still require their own approved acceptance runs. Step 3B integrates
+safe P50 category labels as described next; application allowlist/display changes
+remain separately coordinated work.
+
+## P50 driver labels (Step 3B)
+
+LightGBM prediction now fills the existing optional `top_drivers` field with up to three
+category identifiers, separated by semicolons. Each label is selected from a verified
+complete explanation of that row's final P50. It does not explain direction/spike
+probabilities, P10/P90 or real-world causation. Numerical forecasts, model state,
+provenance, public signatures and the 13-column schema are unchanged. Persistence
+keeps its existing behavior and remains the default predictor.
+
+Learned feature contributions are summed with signs within each registry category.
+For a relative primary prediction, its deterministic published spot reconstruction
+offset is added to `spot_price_conditions` exactly once for this ranking. The private
+record still distinguishes that offset from learned SHAP effects. The bias/base is
+excluded. Categories with exactly zero total are omitted; the remaining categories
+are ordered by descending absolute total, with category identifier order breaking
+ties. Within-category cancellation can therefore remove a label. Only identifiers
+are emitted, never contributions, offsets, base values, feature values or free text.
+
+Direct-price backup rows use the active direct P50 head's contributions. A missing,
+duplicate, foreign, blocked or incomplete explanation produces blank text for that
+row. Unknown transformation policies, unverified P50 attribution, zero total effects
+and unsupported complete decompositions also produce blank text. Persistence rows
+never receive LightGBM labels. The ranking validates the identity calibration and
+P50-preserving constraint ledger; future calibration/blending must extend verification
+before affected P50 labels can be emitted.
+
+Prediction reuses its existing private feature batch and reconstruction/price state.
+Only active P50 heads need native contributions for driver selection; classifier and
+outer-quantile attribution remain available through the explicit private 3A helper.
+No model is refitted. Attribution adds inference work; full-data runtime measurement
+and optimization remain separate work. Numeric records never enter ForecastResult,
+frame attrs, provenance schemas, application payloads or diagnostics.
+
+Focused checks for this integration:
+
+```bash
+.venv/bin/python -W error::FutureWarning -m unittest forecast_engine.tests.test_explainability -v
+.venv/bin/python -W error::FutureWarning -m unittest forecast_engine.tests.test_lightgbm forecast_engine.tests.test_model_compatibility forecast_engine.tests.test_experiment_contract -v
+```
+
+The first module covers selector/privacy properties, private math and integrated
+prediction. The second command covers affected model consumers: numerical/frozen-state
+regressions, backend serialization, official validation/scoring of small synthetic
+exports and experiment defaults/manifests. These are targeted checks for prediction
+assembly changes; no full repository suite or full-data retraining is required solely
+to verify optional labels.
+
+### Application coordination handoff
+
+Following explicit user approval after Step 3B review, the backend now accepts the nine
+P50 categories below alongside `last_imbalance_price`. The serializer preserves engine
+order, removes duplicates and drops the whole value for unknown/mixed unsafe lists.
+Verified labels pass through cached JSON and `/api/forecast` when an ML predictor is
+supplied through existing trusted composition. The default remains persistence. The
+frontend accepts nullable driver strings but currently has no driver display; that
+work remains with the frontend owner.
+
+```text
+CROSS-BOUNDARY CHANGE NOTICE
+Approved change and affected files/components: User-authorized backend/app/schemas.py
+allowlist/comment update, backend service/HTTP tests and backend documentation; the
+engine-side serializer expectation and this guide were updated to match. No response
+field/type change or frontend edit was made.
+Reason and expected benefit: Let the application display verified P50 category drivers.
+Application/team impact: Preserve last_imbalance_price and existing filtering of unknown
+or unsafe text. Labels explain P50 only; relative spot ranking includes a deterministic
+conversion offset, not just learned effects. No numeric explanation API is proposed.
+Compatibility risks: Misstating the label scope or weakening the unknown-text filter.
+Coordination or migration steps: Restart prepared services to use the updated boundary.
+Valid combinations, rejection of unknown/private values and genuine native engine to
+HTTP propagation are tested. Coordinate friendly labels/display with the frontend owner.
+Can engine work proceed? Yes; supported category strings now pass through the backend.
+Approval status: Explicit user authorization given for this backend follow-up. Frontend
+display changes and default model activation remain separately coordinated work.
+```
+
+Registry identifiers: `renewable_production`, `consumption`, `production`,
+`cross_border_flows`, `neighboring_markets`, `balancing_conditions`, `historical_prices`,
+`spot_price_conditions`, `calendar_horizon`. Some require optional feature groups and
+will not appear with the current minimal recipe. Do not expose private numerical
+contribution records to implement this identifier-only display.

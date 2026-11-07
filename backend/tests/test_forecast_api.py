@@ -3,6 +3,7 @@
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import redirect_stderr, redirect_stdout
 from io import StringIO
+import importlib.util
 import json
 import logging
 from pathlib import Path
@@ -62,6 +63,24 @@ class ForecastApiTests(unittest.TestCase):
             self.fitted.predict.assert_called_once()
             self.assertEqual(self.predictor.fit.call_args.kwargs["config"], RunConfig.validation())
         self.assertIsNone(self.app.state.forecast_service)
+
+    def test_verified_driver_categories_pass_http_while_unsafe_combinations_are_null(self):
+        combined = "historical_prices;balancing_conditions;spot_price_conditions"
+        self.result.forecasts.loc[0, "top_drivers"] = combined
+        self.result.forecasts.loc[1, "top_drivers"] = "last_imbalance_price"
+        self.result.forecasts.loc[2, "top_drivers"] = "historical_prices;" + PRIVATE_SENTINEL
+        self.result.forecasts.loc[3, "top_drivers"] = ""
+        with TestClient(self.app) as client:
+            response = client.get("/api/forecast")
+            self.assertEqual(response.status_code, 200)
+            payload = response.json()
+            self.assertEqual(payload["points"][0]["top_drivers"], combined)
+            self.assertEqual(payload["points"][1]["top_drivers"], "last_imbalance_price")
+            self.assertTrue(all(p["top_drivers"] is None for p in payload["points"][2:]))
+            self.assertNotIn(PRIVATE_SENTINEL, response.text)
+            self.assertEqual(client.get("/api/forecast").json(), payload)
+            self.predictor.fit.assert_called_once()
+            self.fitted.predict.assert_called_once()
 
     def test_health_reports_readiness_only_and_has_no_forecast_values(self):
         with TestClient(self.app) as client:
@@ -221,6 +240,54 @@ class ForecastApiTests(unittest.TestCase):
                                        cwd=directory, capture_output=True, text=True, timeout=30)
             self.assertEqual(completed.returncode, 0, completed.stderr)
             self.assertEqual(completed.stdout + completed.stderr, "")
+
+
+@unittest.skipUnless(importlib.util.find_spec("lightgbm") is not None, "optional LightGBM not installed")
+class NativeDriverApiTests(unittest.TestCase):
+    def test_genuine_relative_engine_drivers_reach_cached_http_response(self):
+        import pandas as pd
+        from forecast_engine.models.lightgbm import LightGBMPredictor
+        from forecast_engine.tests.test_lightgbm import ml_fixture
+
+        data, source_config, recipe = ml_fixture()
+        shift = pd.Timestamp(DEFAULT_ORIGIN) - pd.Timestamp(source_config.fit_cutoff_utc)
+        series, spot = data.series.copy(), data.spot.copy()
+        for table in (series, spot):
+            table["timestamp_utc"] += shift
+            table["first_usable_origin_utc"] += shift
+        with tempfile.TemporaryDirectory() as workdir:
+            directory = Path(workdir)
+            inputs_path, spot_path = directory / "inputs.csv", directory / "spot_nordpool.csv"
+            series.to_csv(inputs_path, index=False)
+            spot.to_csv(spot_path, index=False)
+            config = ForecastConfig(inputs_path, spot_path, origins=(DEFAULT_ORIGIN,))
+            services = []
+
+            def prepare():
+                service = prepare_forecast(config, predictor=LightGBMPredictor(
+                    recipe=recipe, min_training_rows=10, target_mode="spot_relative"),
+                    model_id="lightgbm-relative-fixture")
+                services.append(service)
+                return service
+
+            with TestClient(create_app(service_factory=prepare)) as client:
+                with patch("forecast_engine.models.lightgbm.fit_head", side_effect=AssertionError("refit on request")):
+                    first = client.get("/api/forecast")
+                    second = client.get("/api/forecast")
+                self.assertEqual(first.status_code, 200)
+                self.assertEqual(first.json(), second.json())
+                self.assertEqual(len(services), 1)
+                result = services[0]._result.forecasts
+                payload = first.json()
+                self.assertEqual(payload["predictor_id"], "lightgbm-relative-v1")
+                expected = [None if pd.isna(value) else value for value in result.top_drivers]
+                self.assertTrue(any(value is not None for value in expected))
+                self.assertEqual([p["top_drivers"] for p in payload["points"]], expected)
+                for point, row in zip(payload["points"], result.itertuples(index=False)):
+                    for name in ("p10", "p50", "p90", "p_up", "p_down", "p_none", "p_spike_high", "p_spike_low"):
+                        self.assertEqual(point[name], getattr(row, name))
+                for forbidden in ('"spot_price":', '"feature_values":', '"contributions":', '"_model_text":'):
+                    self.assertNotIn(forbidden, first.text)
 
 
 if __name__ == "__main__":

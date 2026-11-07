@@ -1,7 +1,8 @@
 """Pooled direct/spot-relative price predictor behind existing engine protocols.
 
 No public core exports or CLI defaults change. Optional LightGBM is loaded on fit or
-prediction only. Calibration and explanations are later steps.
+prediction only. P50 driver labels use verified private contributions; calibration
+remains a later step.
 Evidence gaps fail explicitly; persistence is an explicitly selected separate model,
 never a silent catch-all fallback. Fit state retains no mutable training DataFrames.
 """
@@ -69,6 +70,11 @@ class FittedLightGBM:
         for index, label in enumerate(DIRECTION_CLASSES):
             frame[f"p_{label}"] = raw["direction"][:, index]
         frame["p_spike_high"], frame["p_spike_low"] = raw["spike"][:, 0], raw["spike"][:, 1]
+        from ..explainability.drivers import _driver_labels
+
+        frame["top_drivers"] = pd.array(_driver_labels(
+            self, features, reconstruction=reconstruction, prices=prices, forecast_p50=frame.p50,
+        ), dtype="string")
         records = []
         rows_by_origin = {origin: [] for origin in requested}
         for position, row in enumerate(features.evidence):

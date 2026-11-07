@@ -56,8 +56,13 @@ class ModelCompatibilityTests(unittest.TestCase):
                                       run_id="00000000-0000-0000-0000-000000000001", generated_at_utc=config.fit_cutoff_utc)
             self.assertEqual(len(response.points), 40)
             self.assertEqual(response.predictor_id, fitted.provenance.predictor_id)
+            if isinstance(model, LightGBMPredictor):
+                expected = [None if pd.isna(value) else value for value in result.forecasts.top_drivers]
+                self.assertEqual([point.top_drivers for point in response.points], expected)
+                if model.target_mode == "spot_relative":
+                    self.assertTrue(result.forecasts.top_drivers.notna().any())
 
-    def test_direct_model_exports_and_passes_real_official_validation_and_scoring(self):
+    def test_both_models_export_and_pass_real_official_tools_with_driver_text(self):
         data, config, recipe = ml_fixture()
         fold = ChronologicalFold(config, config.fit_cutoff_utc, config.fit_cutoff_utc + pd.Timedelta(hours=2))
         with tempfile.TemporaryDirectory() as workdir:
@@ -66,14 +71,20 @@ class ModelCompatibilityTests(unittest.TestCase):
             data_dir.mkdir()
             data.series.to_csv(data_dir / "inputs.csv", index=False)
             data.spot.to_csv(data_dir / "spot_nordpool.csv", index=False)
-            manifest = run_experiment(starter_dir=ROOT, data_dir=data_dir, output_dir=directory / "output",
-                                      fold=fold, predictor=LightGBMPredictor(recipe=recipe, min_training_rows=10),
-                                      recipe_id="lightgbm-direct-synthetic-v1")
-            self.assertEqual(manifest["status"], "complete")
-            self.assertEqual(manifest["forecast_rows"], 80)
-            self.assertTrue(all(c["exit_code"] == 0 for c in manifest["official_commands"]))
-            self.assertTrue(all(manifest["metrics"][name] is not None for name in (
-                "mae_p50", "calibration_pinball_mean", "brier_spike_mean", "brier_direction")))
+            for mode in ("direct", "spot_relative"):
+                output = directory / mode
+                manifest = run_experiment(starter_dir=ROOT, data_dir=data_dir, output_dir=output,
+                                          fold=fold, predictor=LightGBMPredictor(recipe=recipe, min_training_rows=10,
+                                                                               target_mode=mode),
+                                          recipe_id=f"lightgbm-{mode}-synthetic-v1")
+                self.assertEqual(manifest["status"], "complete")
+                self.assertEqual(manifest["forecast_rows"], 80)
+                self.assertTrue(all(c["exit_code"] == 0 for c in manifest["official_commands"]))
+                self.assertTrue(all(manifest["metrics"][name] is not None for name in (
+                    "mae_p50", "calibration_pinball_mean", "brier_spike_mean", "brier_direction")))
+                if mode == "spot_relative":
+                    exported = pd.read_csv(output / "forecast_backtest.csv")
+                    self.assertTrue(exported.top_drivers.notna().any())
 
 
 if __name__ == "__main__":
