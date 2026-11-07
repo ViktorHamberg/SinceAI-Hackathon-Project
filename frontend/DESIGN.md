@@ -51,3 +51,24 @@ Verification and remaining limits belong in the roadmap and independent-review h
   Left/Right/Home/End give the same choice through one keyboard tab stop.
 - The plotting library is a separate lazy-loaded chunk. The table remains available
   during loading or chart failure. No data is copied into the build or fallback UI.
+
+## Step 3B replay direction and decisions
+
+The user requested a modern dragging interaction in the existing company-inspired
+theme. Retain ENERGY 1 / RHYTHM 2 / MOTION 1: movement directly chooses a historical
+issue time; no decorative animation, new imagery, neon palette or fake live feed.
+
+- A native range handle and orange/brown elapsed segment form the replay gesture.
+  Actual UTC date spacing preserves gaps between the six available forecasts.
+- Nearby markers intentionally cluster. A native exact-time list and forecast
+  navigation buttons provide precise alternatives rather than distorting time spacing.
+- Preview is local to the selector so dragging does not rerender the chart/table or
+  create requests. A prominent date readout distinguishes preview from displayed issue
+  time; release commits the nearest available forecast, including when released outside
+  the handle through pointer capture. Cancellation leaves the committed view unchanged.
+- The new issue-time panel sits above context/chart. Its explicit forecast labels
+  distinguish origin selection from the chart's delivery-quarter inspection controls.
+- Controls stack on narrow screens; dates keep full timezone offsets, and the native
+  list handles closely spaced and repeated local times through UTC-valued options.
+- Selected snapshots clear during loading/error, share one identity check and update
+  context/chart/table together. New origins reset quarter inspection and table scrolling.

@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
-import { fetchForecast, parseForecast, requestErrorMessage } from './forecast';
-import { fixture, jsonResponse } from '../test/fixture';
+import { fetchForecast, fetchOrigins, fetchSelectedForecast, parseForecast, parseOrigins, requestErrorMessage } from './forecast';
+import { fixture, jsonResponse, originsFixture, selectedFixture } from '../test/fixture';
 
 describe('v1 response boundary', () => {
   it('preserves every value, including negative prices and optional nulls', () => {
@@ -34,6 +34,48 @@ describe('v1 response boundary', () => {
   });
   it.each([null, [], {}, 'raw server diagnostics'])('rejects non-envelope %j', (value) => {
     expect(() => parseForecast(value)).toThrow();
+  });
+});
+
+describe('origin catalog and selected snapshots', () => {
+  it('preserves the exact sorted catalog and rejects malformed or restricted fields', () => {
+    const catalog = originsFixture();
+    expect(parseOrigins(catalog)).toEqual(catalog);
+    const mutations = [
+      { origins: [] }, { origins: [...catalog.origins].reverse() },
+      { origins: [catalog.origins[0], catalog.origins[0]] },
+      { origins: ['2026-09-06T21:15:00Z'] }, { origins: ['2026-09-06T21:00:00'] },
+      { default_origin_utc: catalog.origins[1] }, { fit_cutoff_utc: '2026-09-07T00:00:00Z' },
+      { spot_price: 'SYNTHETIC_PRIVATE' }, { run_id: 'private source text' },
+      { origins: Array.from({ length: 7 }, (_, i) => new Date(Date.parse(catalog.origins[0]) + i * 3600_000).toISOString().replace('.000Z', 'Z')) },
+    ];
+    for (const mutation of mutations) expect(() => parseOrigins({ ...catalog, ...mutation })).toThrow('incomplete or unsupported');
+  });
+
+  it('fetches the catalog and URL-encoded selected forecast without altering prices', async () => {
+    const catalog = originsFixture();
+    const origin = catalog.origins[1];
+    const forecast = selectedFixture(origin);
+    const mock = vi.fn().mockResolvedValueOnce(jsonResponse(catalog)).mockResolvedValueOnce(jsonResponse(forecast));
+    vi.stubGlobal('fetch', mock);
+    expect(await fetchOrigins()).toEqual(catalog);
+    expect(await fetchSelectedForecast(catalog, origin)).toEqual(forecast);
+    expect(mock.mock.calls.map((call) => call[0])).toEqual(['/api/origins', '/api/forecast?origin=2026-09-06T22%3A00%3A00Z']);
+  });
+
+  it('rejects a wrong origin or changed run identity and never requests an uncached origin', async () => {
+    const catalog = originsFixture();
+    const origin = catalog.origins[1];
+    const forecast = selectedFixture(origin);
+    for (const mutation of [{ ...fixture() }, { ...forecast, run_id: '00000000-0000-4000-8000-000000000002' },
+      { ...forecast, engine_revision: `sha256:${'b'.repeat(64)}` }, { ...forecast, generated_at_utc: '2026-11-07T12:01:00Z' }]) {
+      vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse(mutation)));
+      await expect(fetchSelectedForecast(catalog, origin)).rejects.toThrow('incomplete or unsupported');
+    }
+    const mock = vi.fn();
+    vi.stubGlobal('fetch', mock);
+    await expect(fetchSelectedForecast(catalog, '2026-09-08T00:00:00Z')).rejects.toThrow('incomplete or unsupported');
+    expect(mock).not.toHaveBeenCalled();
   });
 });
 

@@ -1,4 +1,4 @@
-import type { ForecastResponse } from '../api/forecast';
+import type { ForecastResponse, OriginsResponse } from '../api/forecast';
 
 /** Invented values only. Never replace this with exported challenge data. */
 export function fixture(origin = '2026-09-06T21:00:00Z'): ForecastResponse {
@@ -18,4 +18,13 @@ export function fixture(origin = '2026-09-06T21:00:00Z'): ForecastResponse {
 
 export function jsonResponse(value: unknown = fixture()): Response {
   return new Response(JSON.stringify(value), { status: 200, headers: { 'Content-Type': 'application/json' } });
+}
+
+export function originsFixture(origins = ['2026-09-06T21:00:00Z', '2026-09-06T22:00:00Z', '2026-10-03T21:00:00Z']): OriginsResponse {
+  const { forecast_origin_utc: _origin, points: _points, ...identity } = fixture();
+  return { ...identity, default_origin_utc: origins[0], origins };
+}
+
+export function selectedFixture(origin: string): ForecastResponse {
+  return { ...fixture(origin), fit_cutoff_utc: fixture().fit_cutoff_utc };
 }
