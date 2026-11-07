@@ -2,8 +2,9 @@
 
 **Status: Steps 1A and 1B passed independent review and were published by the user.
 Step 2 is now split into 2A (API connection and table) and 2B (chart).
-The user authorized Step 2A on 7 November 2026; its implementation and checks are
-recorded below. Step 2B and later work require separate approval. The user confirmed on
+Step 2A was approved and published by the user. Step 2B was separately authorized on
+7 November 2026; its implementation and verification limits are recorded below.
+Step 3 and later work require separate approval. The user confirmed on
 7 November 2026 that engine Step 6
 passed independent review and was published to GitHub. Older engine documents still
 describe that review as pending; this plan records the update without editing them.**
@@ -19,8 +20,8 @@ root path mentioned in AGENTS.md.
 ## Scope and first milestone
 
 Build a local decision-support application using Python/FastAPI, TypeScript/React/Vite,
-plain CSS files and JSON REST. Recharts is a candidate for Step 2B, subject to checking
-its interactions and negative-price support. Steps 1A, 1B and 2A connect one genuine
+plain CSS files and JSON REST. Step 2B uses Recharts with a true range band and
+application-owned selection. Steps 1A, 1B and 2A connect one genuine
 40-step forecast to a browser table; Step 2B adds a p50 line and p10–p90 band at that
 fixed historical origin. The first usable application milestone
 finishes after Steps 3–4: select a historical origin and inspect its forecast,
@@ -326,8 +327,8 @@ functionality. Add no chart dependency or empty chart placeholder in this half.
 
 Show all 40 quarters in an accessible table, with exact p10/p50/p90 values, EUR/MWh
 units, origin, full ten-hour window, historical replay status and model/run identity.
-Keep optional details collapsible. Use explicit Europe/Helsinki offsets with UTC in
-timestamp tooltips, retaining UTC instants as row keys. Include loading, sanitized
+Keep optional details collapsible. Use explicit Europe/Helsinki offsets with a visible
+Helsinki/UTC switch, retaining UTC instants as row keys. Include loading, sanitized
 network/HTTP/malformed-response errors, timeout and retry. Clear previous data during
 reload; ignore cancelled/stale responses. Never use a runtime mock fallback.
 
@@ -405,19 +406,25 @@ integration passed, and engine sources/tests were unchanged. No forecast-accurac
 improvement is claimed. **Engine change proposals: None.** Stop for independent review
 and explicit Step 2B approval; no commit, push or merge was performed.
 
+The subsequent authorized visual redesign added the visible Helsinki/UTC switch and
+increased the frontend suite to 37 passing tests. Independent review found no concrete
+implementation defect but blocked on incomplete browser verification. The user then
+confirmed that those manual checks worked, approved Step 2A and published it. The
+34-test results above describe the earlier candidate, rather than the final redesign.
+
 ## Step 2B. Add the price chart and uncertainty band
 
 **Objective and implementation:** Reuse Step 2A's API module, time helpers, request
 states, page layout and accessible table. Select the chart library against required
-interactions; Recharts remains a candidate. Keep styling in CSS files.
+interactions. Recharts was selected during this step. Keep styling in CSS files.
 
 Render p50 as a line and p10–p90 as an interval over all 40 delivery quarters, with
-EUR/MWh units, legend and exact-value tooltips. Use a range area or equivalent band
+EUR/MWh units, legend and an exact-value inspection strip. Use a range area or equivalent band
 that remains correct for negative prices; a zero-based stacked area must not distort
 the interval. Preserve quarter-hour values and avoid smoothing that implies additional
 forecasts. Show forecast origin, historical replay label and the full ten-hour window.
 Default labels to `Europe/Helsinki` with explicit timezone/offset; retain UTC instants
-as chart keys and offer UTC in tooltips. The user's machine timezone must not change
+as chart keys and offer UTC in the inspection strip. The user's machine timezone must not change
 which forecast is shown. Include loading, API failure, malformed response and retry
 states; stale charts must not appear to represent a newly requested result.
 
@@ -429,7 +436,7 @@ as needed. Preserve the table as the accessible exact-value view.
 negative and crossing-zero bands, origin/delivery labels and timezone formatting.
 Use synthetic fixtures for component tests, including the repeated Helsinki hour on
 25 October and dates crossing midnight. Run TypeScript checking and production build.
-Manually open the real backend/frontend together and confirm 40 points and tooltips
+Manually open the real backend/frontend together and confirm 40 points and selected values
 agree with the API, with no console errors. Network inspection must show no restricted
 spot fields or data-file requests. Automated fixtures do not replace this real smoke.
 
@@ -442,6 +449,73 @@ browser view. All 40 quarters remain accessible; the interval handles negative v
 the origin and delivery window are unambiguous. The normal application path uses the
 real endpoint, without hardcoded predictions or a mock fallback. Tests/build and real
 browser verification pass, with any environment limits stated explicitly.
+
+### Step 2B implementation and verification
+
+Follow-up authorized axis polish: price ticks now use evenly spaced round values
+(for the current forecast: -100, -50, 0, 50, 100), with outward-rounded bounds.
+All 55 frontend tests, TypeScript/build and `git diff --check` passed after this change.
+The 54-test and HTTP evidence below describe the earlier candidate; forecast values
+and request behavior are unchanged. The user confirmed quarter bounds, Previous/Next
+and supplied desktop screenshots before this axis adjustment.
+
+Added `src/components/ForecastChart.tsx` and its CSS, `src/forecastChart.ts`, a
+chart-only `ChartBoundary.tsx` and focused tests under `frontend/`. App mounts the
+chart above the existing table using a separate lazy-loaded chunk. Updated package/
+lock files, App tests/styles, synthetic resize setup, time formatter caching and the
+frontend guides. Backend, engine, API contract and original challenge files are
+unchanged. Recharts 3.10.1 and matching React Is 19.3.1 are pinned; both are MIT licensed.
+
+The median and true P10-to-P90 range use step-after geometry, including negative and
+crossing-zero prices. A final range rectangle and median segment cover quarter 40's
+complete duration without adding a 41st forecast. Selection works through hover,
+click/tap, Left/Right/Home/End and native Previous/Next buttons. A persistent strip
+shows exact prices and full delivery start/end timestamps. This deliberate alternative
+to floating tooltips keeps values visible on narrow screens. React owns one selection
+state; Recharts' built-in interaction layer is disabled. Chart interactions make no
+new data request, and there is no chart animation. If plotting fails, the table remains
+available. Timezone switching changes presentation only.
+
+Windows verification used Node 24.13.0, npm 11.6.2 and the shared Python 3.12.16
+environment (pandas 2.2.3, NumPy 2.3.5). Commands actually run include:
+
+```powershell
+npm.cmd --prefix frontend ci --offline --no-audit --no-fund
+npm.cmd --prefix frontend run test -- --run --reporter=json --outputFile=../baseline_output/application/step-2b-01/frontend-tests.json
+npm.cmd --prefix frontend run build
+npm.cmd --prefix frontend ls --depth=0
+.\.venv\Scripts\python.exe -W error::FutureWarning -m unittest discover -s backend/tests -t . -q
+git diff --check
+```
+
+All 54 frontend tests and 27 backend tests passed. The build includes TypeScript
+checking and passed without a large-chunk warning: main JavaScript is approximately
+73 KB gzipped and the separately loaded chart approximately 105 KB gzipped. A clean
+lockfile installation from the npm cache passed. Synthetic checks cover all 40
+keyboard selections, mixed input methods, touch taps/swipes, bounded controls,
+midnight/DST offsets, negative/crossing-zero SVG geometry, final-quarter duration and
+chart failure isolation. The synthetic layout dimensions do not verify real responsive
+layout or browser scrolling performance.
+
+A real backend on port 8001 and production preview on 4174 passed HTTP integration.
+Direct and proxied responses were byte-identical. The frontend parser accepted all
+40 points, and its chart adapter retained all 120 price values exactly across the
+full ten-hour span without mutating the response. Built assets returned HTTP 200.
+The backend reported engine revision
+`sha256:657e7ac46031e67662d6dc2b5e64d7d0408dc77cbeda22afc08f7de8865b0fd7`.
+No restricted spot field was present. Private evidence and the review handoff live
+under ignored `baseline_output/application/step-2b-01/`.
+
+Calculated contrast checks passed for the changed plot's specified color pairs,
+including the interval boundary against its fill (4.57:1). This does not establish
+overall accessibility conformance. Browser automation reported that its access host
+was unavailable, so real visual/keyboard/touch verification, narrow/intermediate widths,
+200% zoom, console/Network inspection and scrolling performance remain manual checks.
+The Anti Slop browser gate has no overall PASS. macOS and a fresh online install were
+not verified. The full engine suites were not rerun for this frontend change.
+No forecast-accuracy improvement is claimed. **Engine change proposals: None.**
+Stop for independent review and explicit approval before Step 3; no Git write is
+authorized by this result.
 
 ## Step 3. Select historical forecast origins
 
@@ -599,17 +673,21 @@ passes, and remaining limits are recorded without claiming unmeasured Level 2 po
 ## Local execution and verification contract
 
 The individual step results record checks actually run; these commands summarize the
-local workflow. Run from the repository root using Python 3.11+ and the existing
-environment. The frontend guide records the selected Node/npm versions and lockfile.
+local workflow. Run from the repository root using the shared Python 3.12 environment
+described in [python-environment.md](python-environment.md). That guide supersedes older
+separate pip-install instructions. The frontend guide records Node/npm and its lockfile.
 The engine guide remains the source for engine installation and private input setup.
 
 ```bash
-# Step 1A uses the existing engine environment; no additional install is required:
+# Synchronize the committed shared Python lock after pulling dependency changes:
+uv pip sync --python .venv requirements-dev.lock
+uv pip check --python .venv
+
+# Backend checks and explicit smoke:
 .venv/bin/python -m unittest discover -s backend/tests -v
 .venv/bin/python -m backend.tests.smoke_forecast --data-dir data
 
-# Once Step 1B is authorized and the HTTP adapter/dependencies exist:
-.venv/bin/python -m pip install -r backend/requirements.txt
+# Start the existing HTTP adapter:
 .venv/bin/python -m uvicorn backend.app.main:app --host 127.0.0.1 --port 8000 --workers 1 --no-access-log
 
 # In another terminal, once Step 2 exists:
@@ -641,5 +719,5 @@ Use [the independent review workflow](REVIEW.md); obtain approval for the affect
 candidate before any separately authorized push. An approved roadmap or review verdict
 does not authorize implementation of the next step, committing, pushing or merging.
 
-The roadmap was initially a planning-only change. Steps 1A, 1B and 2A's separately
+The roadmap was initially a planning-only change. Steps 1A, 1B, 2A and 2B's separately
 authorized implementation and actual verification are recorded above; later steps remain gated.

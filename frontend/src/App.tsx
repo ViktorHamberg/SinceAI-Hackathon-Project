@@ -1,10 +1,13 @@
-import { useEffect, useState } from 'react';
+import { lazy, Suspense, useEffect, useState } from 'react';
 import { fetchForecast, requestErrorMessage } from './api/forecast';
 import type { ForecastResponse } from './api/forecast';
 import ForecastTable from './components/ForecastTable';
+import ChartBoundary from './components/ChartBoundary';
 import { deliveryWindowEnd, formatTimestamp } from './time';
 import type { DisplayZone } from './time';
 import './App.css';
+
+const ForecastChart = lazy(() => import('./components/ForecastChart'));
 
 type LoadState = { status: 'loading' } | { status: 'error'; message: string } | { status: 'ready'; forecast: ForecastResponse };
 
@@ -89,6 +92,11 @@ export default function App() {
             </dl>
           </section>
 
+          <ChartBoundary>
+            <Suspense fallback={<section className="chart-loading" role="status">Loading price chart. The full forecast is available in the table below.</section>}>
+              <ForecastChart points={state.forecast.points} zone={zone} />
+            </Suspense>
+          </ChartBoundary>
           <ForecastTable points={state.forecast.points} zone={zone} />
 
           <details className="run-details">

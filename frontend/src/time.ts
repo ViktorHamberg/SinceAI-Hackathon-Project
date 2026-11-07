@@ -1,11 +1,17 @@
 /** Explicit display zones keep replay independent of the viewer's machine timezone. */
 export type DisplayZone = 'Europe/Helsinki' | 'UTC';
+const timestampFormatters = new Map<DisplayZone, Intl.DateTimeFormat>();
 
 export function formatTimestamp(value: string, timeZone: DisplayZone = 'Europe/Helsinki'): string {
-  return new Intl.DateTimeFormat('en-GB', {
-    timeZone, year: 'numeric', month: 'short', day: '2-digit',
-    hour: '2-digit', minute: '2-digit', hourCycle: 'h23', timeZoneName: 'shortOffset',
-  }).format(new Date(value)).replace('GMT', 'UTC');
+  let formatter = timestampFormatters.get(timeZone);
+  if (!formatter) {
+    formatter = new Intl.DateTimeFormat('en-GB', {
+      timeZone, year: 'numeric', month: 'short', day: '2-digit',
+      hour: '2-digit', minute: '2-digit', hourCycle: 'h23', timeZoneName: 'shortOffset',
+    });
+    timestampFormatters.set(timeZone, formatter);
+  }
+  return formatter.format(new Date(value)).replace('GMT', 'UTC');
 }
 
 export function deliveryWindowEnd(origin: string): string {

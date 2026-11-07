@@ -1,5 +1,5 @@
 import { StrictMode } from 'react';
-import { act, render, screen, waitFor } from '@testing-library/react';
+import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { expect, it, vi } from 'vitest';
 import App from './App';
@@ -84,9 +84,9 @@ it('switches all displayed times by keyboard without another request or changed 
   await user.keyboard('{Enter}');
   expect(utc).toHaveAttribute('aria-pressed', 'true');
   expect(screen.getByRole('button', { name: 'Helsinki' })).toHaveAttribute('aria-pressed', 'false');
-  expect(screen.getAllByText('06 Sept 2026, 21:00 UTC')).toHaveLength(3);
+  expect(within(screen.getByRole('region', { name: 'Forecast context' })).getByText('06 Sept 2026, 21:00 UTC')).toBeVisible();
   expect(screen.getByText('07 Sept 2026, 07:00 UTC')).toBeVisible();
-  expect(screen.getByText('-12.345678')).toBeVisible();
+  expect(within(screen.getByRole('table')).getByText('-12.345678')).toBeVisible();
   await user.click(screen.getByText('Model and run details'));
   expect(screen.getByText('07 Nov 2026, 12:00 UTC')).toBeVisible();
   expect(fetch).toHaveBeenCalledTimes(1);
