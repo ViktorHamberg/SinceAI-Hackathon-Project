@@ -1,7 +1,8 @@
 # Application: incremental implementation plan
 
-**Status: Proposed for review. Planning only; no application step is implemented or
-authorized by this document. The user confirmed on 7 November 2026 that engine Step 6
+**Status: Step 1A implemented and verified on Windows; awaiting independent review.
+Step 1B and later steps are not implemented or authorized. The user confirmed on
+7 November 2026 that engine Step 6
 passed independent review and was published to GitHub. Older engine documents still
 describe that review as pending; this plan records the update without editing them.**
 
@@ -16,10 +17,18 @@ root path mentioned in AGENTS.md.
 ## Scope and first milestone
 
 Build a local decision-support application using Python/FastAPI, TypeScript/React/Vite,
-Tailwind CSS, Recharts and JSON REST. Steps 1–2 deliver the first milestone: one genuine
-40-step engine forecast shown in the browser as p50 and a p10–p90 band. A fixed
-historical origin is sufficient. Steps 3–5 add the Level 2 priorities of situational
-insights, historical review and usability.
+Tailwind CSS, Recharts and JSON REST. Steps 1A, 1B and 2 deliver a connection
+checkpoint: one genuine 40-step engine forecast shown in the browser as p50 and a
+p10–p90 band at a fixed historical origin. The first usable application milestone
+finishes after Steps 3–4: select a historical origin and inspect its forecast,
+uncertainty and risk probabilities. Steps 5–6 add retrospective outcomes and final
+usability/demo refinement.
+
+Step 1 is split into two independently checked and approved halves. Step 3 adds
+origin selection separately from Step 5's actual-outcome comparison. Each step or
+half ends with a short explanation of what now works, actual checks, a reviewer
+handoff and a stop for explicit approval. Later steps can be split further before
+implementation if their scope is too large for one clear checkpoint.
 
 No database, authentication, cloud deployment, extra backend language, live market-data
 service or new forecasting algorithm is included. This application does not replace
@@ -34,8 +43,9 @@ deliverables. Better presentation does not establish better forecast accuracy.
   predictor entry points. Record missing capabilities and practical application-side
   adapters in `backend/README.md`; propose engine improvements through the standing
   coordination protocol below and coordinate implementation as separate work.
-- Keep dependencies and tooling application-local: `backend/requirements.txt`, frontend
-  package/lock files and local ignore files. Preserve the starter `requirements.txt`.
+- Keep dependencies and tooling application-local: `backend/requirements.txt` and frontend
+  package/lock files. Use the shared root `.gitignore`, as agreed by the user, for both
+  applications and operating systems. Preserve the starter `requirements.txt`.
   Use the existing Python environment. Choose compatible dependency versions and record
   actual setup results during implementation; none are installed by this plan.
 - Keep responsibilities small: FastAPI owns HTTP and lifecycle; an application service
@@ -47,6 +57,12 @@ deliverables. Better presentation does not establish better forecast accuracy.
   Load inputs and fit once per process lifecycle, then call public `forecast(...)`.
   There is no documented fitted-model save/load API: do not invent or depend on one.
   Use one backend worker initially; development reload restarts the lifecycle.
+  Startup generation and in-memory caching are the initial integration approach:
+  cached forecasts are precomputed before requests, but are regenerated on restart.
+  This does not load existing forecast CSVs or persist fitted models. Record startup
+  cost and reassess this approach when adopting a more expensive model; loading a
+  validated forecast artifact with matching run metadata is a possible later adapter,
+  not an additional implementation requirement for these first checkpoints.
 - Start with `RunConfig.validation()` and origin `2026-09-06T21:00:00Z`, the first
   validation origin and the documented application example. Fitting label deliveries
   are `[2026-05-31T21:00:00Z, 2026-09-06T21:00:00Z)` with publication no later than
@@ -64,12 +80,15 @@ deliverables. Better presentation does not establish better forecast accuracy.
   exceptions. Do not add spot charts or spot-relative numeric price levels.
 - Keep data server-side under ignored `data/`. Keep any private generated evidence
   under already ignored `baseline_output/application/`; do not copy data into Vite's
-  public directory or bundle it. Use synthetic fixtures in tracked tests. App-local
-  ignore files must cover dependency/build/test outputs. Follow README licence and
+  public directory or bundle it. Use synthetic fixtures in tracked tests. The shared
+  ignore file must cover dependency/build/test outputs. Follow README licence and
   deletion rules; do not redistribute restricted source values through derived views.
 - Bind the unauthenticated app to loopback. Use a Vite `/api` proxy to the local backend,
   keeping browser calls relative and avoiding unnecessary CORS configuration. No
   static file route may serve datasets or arbitrary filesystem paths.
+- Include readable units, labels, keyboard access and non-colour cues as relevant
+  components are introduced. The final usability step refines these; it does not
+  defer basic accessibility until the end.
 - Keep engine and application work on separate branches/checkouts where practical.
   Record the tested engine revision in each handoff and recheck integration when it
   changes. Future models may change values; application acceptance must test contract
@@ -105,50 +124,140 @@ engine workflow and require the user's explicit authorization there. Coordinate 
 tested engine revision and any migration before adopting the resulting change in the
 application; preserve the existing integration until that work is approved and verified.
 
-## Step 1. Serve one genuine engine forecast through FastAPI
+## Step 1A. Prepare one genuine forecast and its safe JSON response
 
-**Objective and implementation:** Establish the backend and its application-side
-adapter. In FastAPI lifespan startup, explicitly load private CSV inputs/spot using
-`load_inputs`, create the predictor, fit with `RunConfig.validation()`, and generate
-the fixed origin through `forecast(fitted, data, origins=[origin])`. Retain the fitted
-object and validated result in application state. Importing modules must not load or
-fit data. Serve the cached forecast; do not run training or official tools in handlers.
+**Objective and implementation:** Establish the backend's application-side service,
+configuration and explicit response schema/serialization. An explicit initialization
+call loads private CSV inputs/spot using `load_inputs`, creates the predictor, fits
+with `RunConfig.validation()`, and generates the fixed origin through
+`forecast(fitted, data, origins=[origin])`. Retain the fitted object, validated result
+and prepared response in the service. Importing modules must not load or fit data.
+This half has no web server, HTTP routes or frontend.
 
-Define `GET /api/forecast` with an explicit JSON response containing a forecast origin,
-fit cutoff, predictor identifier, and 40 ordered points. Point fields preserve the 13
-official names; absent `data_cutoff_utc` and `top_drivers` become JSON `null`. The API
+Define a JSON response containing a forecast origin, fit cutoff, predictor identifier
+and 40 ordered points. Point fields preserve the 13 official names; absent
+`data_cutoff_utc` and `top_drivers` become JSON `null`. The API
 envelope is application-owned and does not change the engine/CSV contract. Serialize
 finite numbers and UTC strings without rounding prediction values. Expose only safe
 metadata; omit raw dependency lineage and source values. Include the probability
-fields now even though Step 2 displays only prices. Treat future nonempty free-text
-`top_drivers` as untrusted: expose only approved driver names, otherwise return null.
+fields now even though Step 2 initially displays only prices. Treat future nonempty
+free-text `top_drivers` as untrusted: expose only approved driver names, otherwise
+return null.
 
-Add `GET /api/health` for safe readiness status. Startup failure prevents forecast
-serving and produces a sanitized diagnostic; never substitute fabricated predictions.
-Document configured input paths, fixed origin, startup cost, dependency installation,
-single-worker execution and troubleshooting in the backend guide.
+**Implementation detail to resolve in this half:** Specify how responses identify the
+model/configuration and generation run, and distinguish generation time from historical
+forecast time. Candidate envelope fields are `schema_version`, `run_id`, `model_id`,
+`engine_revision` and `generated_at_utc`, alongside the predictor, origin and fit cutoff.
+Record final names and meanings in `backend/README.md` and test them before Step 1B
+exposes the response. A predictor name and fit cutoff alone do not identify a run.
+Repeated retrieval of one cached result must preserve its identity and generation
+timestamp. This is a small application-owned decision to complete during Step 1A,
+not an outstanding roadmap blocker or a request to change the engine interface.
 
-**Expected new files:** `backend/__init__.py`, `backend/app/{__init__,main,config,
-forecast_service,schemas}.py`, `backend/requirements.txt`, `backend/.gitignore`,
-`backend/README.md`, and `backend/tests/{__init__,test_forecast_api}.py`.
-No existing engine or starter files change.
+Initialization failures produce sanitized diagnostics; never substitute fabricated
+predictions. Document explicit initialization, configured input paths, fixed origin,
+measured preparation cost and troubleshooting in the backend guide. Declare only
+dependencies needed for this half in `backend/requirements.txt`, if any beyond the
+existing engine environment; defer HTTP runtime/test dependencies to Step 1B.
 
-**Verify:** Use standard-library unittest plus FastAPI's test client and its declared
-HTTP test dependency. Check full 40-step JSON shape, UTC arithmetic, null conversion,
-probability/quantile validity, repeated requests without additional fit/predict calls,
-and sanitized startup failures. Synthetic fixtures may isolate HTTP tests; a separate
-local smoke must call the real engine with supplied data and compare all required
-JSON prediction values and identifiers against the retained engine result. Test that
-restricted fields and sentinel source values cannot pass response serialization or
-error logging. Check import does not initialize the engine.
+**Expected new files:** `backend/__init__.py`,
+`backend/app/{__init__,config,forecast_service,schemas}.py`,
+`backend/README.md`,
+`backend/tests/{__init__,test_forecast_service}.py`, and `backend/requirements.txt`
+only if a new serialization dependency is needed.
+No existing engine files change. Updating the shared root `.gitignore` is the user's
+explicitly approved exception for ignore-rule maintenance.
 
-**After this step:** A locally runnable JSON backend serving one real historical
-forecast, ready for a frontend; there is no browser interface yet.
+**Verify:** Use standard-library unittest for full 40-step JSON shape, UTC arithmetic,
+null conversion, probability/quantile validity, run metadata, repeated service retrieval
+without additional fit/predict calls, and sanitized initialization failures. Synthetic
+fixtures isolate service/serialization checks; a separate local smoke must call the
+real engine with supplied data and compare all required JSON prediction values and
+identifiers against the retained engine result. Test that restricted fields and
+sentinel source values cannot pass response serialization or error logging. Check
+import does not initialize the engine.
+
+**After this half:** One real historical forecast can be prepared and retrieved as a
+safe JSON-compatible response through Python. The service is tested before adding HTTP.
+
+**Acceptance criteria:** Real-data preparation succeeds and returns exactly 40 complete
+steps with documented identity metadata. Repeat retrieval reuses one fit and one cached
+prediction per service initialization. No actuals are loaded. Safe errors and privacy
+checks pass. Record actual checks, engine revision and preparation time. Stop for
+review and explicit Step 1B approval.
+
+### Step 1A result and verification
+
+Implemented the config, forecast service and explicit response schema under
+`backend/app/`, with synthetic tests, an explicit real-data smoke command and
+`backend/README.md`. No new dependency or HTTP/frontend code was added. The shared
+root `.gitignore` now covers `results/`, Python test/coverage outputs and frontend
+dependency/build/coverage outputs. No nested ignore file was created. Original engine
+sources, external tests, packaging and challenge tools remain unchanged.
+
+Identity is resolved: application schema version, a UUID per preparation, an explicit
+model recipe label, predictor identifier, engine source fingerprint, generation time,
+historical origin and fitting cutoff. Retrieval preserves metadata and returns detached
+JSON containers. Driver text uses an explicit approved-name list; raw sources and full
+provenance are never response fields. See the backend guide for exact meanings.
+
+Windows verification on 7 November 2026 used Python 3.14.2, pandas 3.1.1, NumPy 2.5.4
+and forecast-engine 0.1.0:
+
+```powershell
+.\.venv\Scripts\python.exe -W error::FutureWarning -m unittest discover -s backend/tests -v
+.\.venv\Scripts\python.exe -W error::FutureWarning -m unittest discover -s tests -v
+.\.venv\Scripts\python.exe -W error::FutureWarning -m backend.tests.smoke_forecast --data-dir data
+git diff --check
+```
+
+All 14 new backend tests and all 74 unchanged engine tests passed. The real-data smoke
+passed with 40 quarters matching all required engine values/identifiers, cached
+retrieval, two source CSV reads, zero actuals reads and unchanged source hashes.
+Preparation took 54.086 seconds while the engine suite ran concurrently; this is not
+an isolated performance benchmark. Safe smoke evidence is local under ignored
+`baseline_output/application/step-1a-01/smoke_report.json`.
+
+The backend suite also checks import isolation, restricted-value/error filtering,
+invalid-output rejection, alternative-predictor compatibility and a real engine run
+on synthetic CSVs from an unrelated directory with paths containing spaces. macOS,
+fresh provisioning, HTTP and browser checks remain unverified. No improved accuracy
+is claimed. **Engine change proposals: None.** Stop for independent review and explicit
+Step 1B approval; no commit, push or merge is authorized.
+
+## Step 1B. Serve the prepared forecast through FastAPI
+
+**Objective and implementation:** Add the HTTP adapter around Step 1A's tested service.
+FastAPI lifespan initializes the service once and retains it in application state.
+`GET /api/forecast` returns its cached, explicitly allowlisted response;
+`GET /api/health` reports safe readiness status. No handler loads source data, fits,
+predicts or runs official tools. Importing the app must not initialize the engine.
+
+Startup failure prevents forecast serving and produces a sanitized diagnostic. Declare
+compatible FastAPI, server and HTTP test dependencies in `backend/requirements.txt`.
+Extend the backend guide with verified installation, loopback binding, single-worker
+execution, reload behavior and HTTP troubleshooting. Reuse Step 1A's response contract
+and serialization rather than introducing a second competing response definition.
+
+**Expected new files:** `backend/app/main.py`, `backend/tests/test_forecast_api.py`,
+and `backend/requirements.txt` if not already needed in Step 1A. Modify only the
+backend service/schema integration, backend guide and dependency manifest as needed.
+
+**Verify:** Use unittest plus FastAPI's test client and its declared HTTP test dependency.
+Check forecast/readiness routes, the complete response contract, sanitized startup
+failure and repeated requests without extra fit/predict calls. Reuse Step 1A's lower-level
+checks. A real-data HTTP smoke must compare returned identifiers and all eight forecast
+fields against the service's retained engine result, and inspect responses/errors for
+restricted data. Verify import remains free of engine initialization.
+
+**After this half:** A locally runnable JSON backend serves one real historical
+forecast, ready for the frontend.
 
 **Acceptance criteria:** A real-data startup succeeds, `/api/forecast` returns exactly
 40 complete steps, and repeat calls reuse one fit and one cached prediction per
 lifecycle. No actuals are loaded. Safe errors and privacy checks pass. Record actual
 checks, engine revision and startup time; make no performance claim in advance.
+Stop for review and explicit Step 2 approval.
 
 ## Step 2. Display the forecast and uncertainty in the browser
 
@@ -168,7 +277,7 @@ which forecast is shown. Include loading, API failure, malformed response and re
 states; stale charts must not appear to represent a newly requested result.
 
 **Expected new files:** `frontend/{package.json,package-lock.json,index.html,
-vite.config.ts,tsconfig*.json,.gitignore,README.md}`, `frontend/src/{main.tsx,App.tsx,
+vite.config.ts,tsconfig*.json,README.md}`, `frontend/src/{main.tsx,App.tsx,
 index.css}`, `frontend/src/api/forecast.ts`, `frontend/src/components/ForecastChart.tsx`,
 `frontend/src/time.ts`, and focused API/chart/time tests beside these modules.
 Modify only backend documentation if the joint startup instructions need clarification.
@@ -182,8 +291,9 @@ Manually open the real backend/frontend together and confirm 40 points and toolt
 agree with the API, with no console errors. Network inspection must show no restricted
 spot fields or data-file requests. Automated fixtures do not replace this real smoke.
 
-**After this step:** The first milestone is complete: one genuine engine forecast is
-visible in the browser, with median, uncertainty, correct times and usable failure states.
+**After this step:** The connection checkpoint is complete: one genuine engine forecast
+is visible in the browser, with median, uncertainty, correct times and usable failure
+states. Origin selection and risk display remain Steps 3–4 of the first usable milestone.
 
 **Acceptance criteria:** A teammate can follow the local guides to reproduce the
 browser view. All 40 quarters remain accessible; the interval handles negative values;
@@ -191,7 +301,38 @@ the origin and delivery window are unambiguous. The normal application path uses
 real endpoint, without hardcoded predictions or a mock fallback. Tests/build and real
 browser verification pass, with any environment limits stated explicitly.
 
-## Step 3. Add direction, exceptional-price probabilities and risk summaries
+## Step 3. Select historical forecast origins
+
+**Objective and implementation:** Extend the service to a bounded selection of validation
+origins from 7 September–4 October, using the existing validation-fitted predictor.
+Support `GET /api/forecast?origin=...` and `GET /api/origins` with a small documented
+allowlist initially; expand only if measured startup/memory cost permits. Generate/cache
+that bounded set during startup through the existing batch API and reuse it for requests.
+Preserve the documented run/model identity and return the selected historical origin.
+Reject unsupported, naive or non-hourly origins safely; never accept client filesystem
+paths, arbitrary training dates or model parameters. No actuals are loaded in this step.
+
+Add a keyboard-accessible origin selector. Selecting an origin retrieves its cached
+forecast without fitting or prediction in the request. Cancel/ignore stale responses
+when selection changes; loading/errors must not show a previous chart as the new result.
+
+**Expected new files:** `frontend/src/components/OriginSelector.tsx`, focused frontend
+selection tests and `backend/tests/test_origin_selection.py`. Modify backend
+config/service/routes/schemas, frontend API/types/App/chart and both guides as needed.
+
+**Verify:** Check allowed/invalid origins, complete horizons, exact UTC selection,
+overlapping delivery windows and frontend response races. Count fit/predict calls to
+prove selection only retrieves cached results. Real-data smoke compares a small set
+of API forecasts against the engine and verifies repeated retrieval and stable metadata.
+
+**After this step:** Users can move between real historical forecasts in the browser.
+
+**Acceptance criteria:** Only allowed validation origins are selectable, all use the
+correct pre-validation fit, and each returns 40 steps. Selection does no fitting or
+prediction; times, metadata, loading and failure states remain unambiguous. Stop for
+review and explicit Step 4 approval.
+
+## Step 4. Add direction, exceptional-price probabilities and risk summaries
 
 **Objective and implementation:** Display the already supplied `p_up/p_down/p_none`
 and `p_spike_high/p_spike_low` by delivery quarter, sharing the price chart's time axis
@@ -219,23 +360,17 @@ selection/time labels and separate high/low events. Verify real engine values ar
 displayed unchanged and no numerical spot price or implied threshold price is exposed.
 
 **After this step:** Users can inspect balancing direction and exceptional-price risk
-and find the quarters with the largest predicted risk or uncertainty.
+and find the quarters with the largest predicted risk or uncertainty for a selected
+origin. The first usable application milestone is complete.
 
 **Acceptance criteria:** Summaries trace to specific returned quarters and stated
 calculations; probabilities retain their official meanings. No horizon-event claim,
 fabricated signal, causal explanation or accuracy improvement is asserted. Real-data
 and synthetic verification pass, including the baseline's potentially flat signals.
 
-## Step 4. Add historical selection and comparison with actual outcomes
+## Step 5. Compare forecasts with actual outcomes
 
-**Objective and implementation:** Extend the same service to a bounded selection of
-validation origins from 7 September–4 October, using the existing validation-fitted
-predictor. Support `GET /api/forecast?origin=...` and `GET /api/origins` with a small,
-documented allowlist initially; expand only if measured startup/memory cost permits.
-Generate/cache that bounded set during startup through the existing batch API and
-reuse it for all requests. Reject unsupported, naive or non-hourly origins safely;
-never accept client filesystem paths, arbitrary training dates or model parameters.
-
+**Objective and implementation:** Reuse Step 3's origin selection and cached forecasts.
 Create a separate actuals adapter and `GET /api/history?origin=...`. Explicitly read
 only delivery timestamp, imbalance price and direction from validation actuals;
 exclude `spot_price` at ingestion and serialization. Join by delivery timestamp, retain
@@ -243,24 +378,28 @@ all forecast rows, and return missing outcomes as null. Do not send original act
 files or derive historical spot values for display. Actuals are loaded only for
 retrospective comparison and have no path into the engine adapter or fitting.
 
-Add an origin selector and actual imbalance-price overlay with a clear retrospective
-label. Report observed MAE, interval coverage and matched/missing counts for the
-selected origin where outcomes exist; use an application summary with explicit sample
+Add an actual imbalance-price overlay, off by default and enabled only by an explicit
+"Show actual outcomes" control. Clearly label the overlay and metrics as retrospective
+outcomes revealed afterward, rather than information available at the forecast origin.
+Fetch history only when the user enables comparison. Report observed MAE, interval
+coverage and matched/missing counts for the selected origin where outcomes exist;
+use an application summary with explicit sample
 size, not official competition points. Do not calculate spike outcomes from restricted
 spot data for the UI. Selecting an earlier origin selects its already valid forecast;
 it does not retrain or use actuals as an input. Cancel/ignore stale frontend responses
 when selection changes.
 
 **Expected new files:** `backend/app/actuals.py`, `backend/tests/test_history.py`,
-`frontend/src/components/{OriginSelector,HistoricalReview}.tsx`, and focused frontend
+`frontend/src/components/HistoricalReview.tsx`, and focused frontend
 history tests. Modify backend config/service/routes/schemas and their tests, frontend
 API/types/App/chart, and both local guides. No test-period actuals are accessed.
 
 **Verify:** Check missing/tail actuals, exact UTC joins, distinct forecasts for overlapping
 delivery windows, invalid origins and counts/metrics against hand-calculated synthetic
 examples. Guard fit call count across selection and ensure actuals cannot enter the
-prediction service. Verify response races, loading/errors and null chart gaps. Use a
-synthetic restricted spot sentinel to prove the actuals adapter does not read/serialize
+prediction service. Verify response races, loading/errors and null chart gaps. Check
+that no history request or outcome display occurs before comparison is enabled.
+Use a synthetic restricted spot sentinel to prove the actuals adapter does not read/serialize
 that column. Real validation-data smoke compares a small set of origins through the
 API and engine; verify repeated retrieval and honest missing-outcome display.
 
@@ -273,7 +412,7 @@ even with missing outcomes. Selected-origin metrics show denominators and are no
 presented as full validation scores. Restricted fields remain absent, requests do not
 refit, and actuals/prediction separation is verified.
 
-## Step 5. Improve usability, evidence and the local demonstration
+## Step 6. Improve usability, evidence and the local demonstration
 
 **Objective and implementation:** Refine the complete workflow for an energy expert:
 readable responsive layout, keyboard-accessible selection, clear legends/units,
@@ -317,15 +456,18 @@ passes, and remaining limits are recorded without claiming unmeasured Level 2 po
 
 ## Local execution and verification contract
 
-These are planned commands to make concrete and verify in Steps 1–2, not commands run
+These are planned commands to make concrete and verify in Steps 1A, 1B and 2, not commands run
 while drafting. Run from the repository root using Python 3.11+ and the existing
 environment. Verify Node/npm compatibility when selecting Vite and lock versions then.
 The engine guide remains the source for engine installation and private input setup.
 
 ```bash
-# Once Step 1 is authorized and its files exist:
-.venv/bin/python -m pip install -r backend/requirements.txt
+# Step 1A uses the existing engine environment; no additional install is required:
 .venv/bin/python -m unittest discover -s backend/tests -v
+.venv/bin/python -m backend.tests.smoke_forecast --data-dir data
+
+# Once Step 1B is authorized and the HTTP adapter/dependencies exist:
+.venv/bin/python -m pip install -r backend/requirements.txt
 .venv/bin/python -m uvicorn backend.app.main:app --host 127.0.0.1 --port 8000
 
 # In another terminal, once Step 2 exists:
@@ -345,7 +487,9 @@ forecast exports. No Docker, database or deployment setup is required.
 
 ## Step completion and review
 
-Implement only the next explicitly authorized step, then stop. Supply a handoff with
+Implement only the next explicitly authorized step or half, then stop. An instruction
+to begin "Step 1" starts Step 1A only; Step 1B requires separate approval after its
+predecessor's handoff. Supply a handoff with
 scope, exact changed files, rationale, branch/base/HEAD, engine revision, actual checks
 and results, local evidence locations and limitations. Keep private outputs ignored.
 Include any **ENGINE CHANGE PROPOSAL** and its coordination status, or explicitly
@@ -354,5 +498,5 @@ Use [the independent review workflow](REVIEW.md); obtain approval for the affect
 candidate before any separately authorized push. An approved roadmap or review verdict
 does not authorize implementation of the next step, committing, pushing or merging.
 
-This planning change creates only this file. No dependency installation, scaffolding,
-code changes or application test execution is part of drafting the roadmap.
+The roadmap was initially a planning-only change. Step 1A's separately authorized
+implementation and actual verification are recorded above; later steps remain gated.
