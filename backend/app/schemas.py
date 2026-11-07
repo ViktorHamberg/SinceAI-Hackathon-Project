@@ -13,8 +13,13 @@ if TYPE_CHECKING:
     from forecast_engine import ForecastResult
 
 SCHEMA_VERSION = "1.0"
-# These names describe inputs, not measured feature-importance rankings.
-APPROVED_DRIVER_NAMES = frozenset({"last_imbalance_price"})
+# Persistence's input marker and verified P50 category labels. Numeric explanation
+# records and arbitrary engine text are never part of this response contract.
+APPROVED_DRIVER_NAMES = frozenset({
+    "last_imbalance_price", "renewable_production", "consumption", "production",
+    "cross_border_flows", "neighboring_markets", "balancing_conditions",
+    "historical_prices", "spot_price_conditions", "calendar_horizon",
+})
 _IDENTIFIER = re.compile(r"[a-z][a-z0-9_-]{0,63}")
 
 

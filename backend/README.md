@@ -131,12 +131,42 @@ Numbers preserve engine precision; no application rounding or probability repair
 performed. Negative prices are valid. Step 1 starts at the origin; step 40 starts
 9h45m later and ends at origin +10h. Missing optional values become JSON `null`.
 
-Driver text is filtered against an explicit approved-name set, initially only
-`last_imbalance_price`. An empty value, unknown name or mixed approved/unapproved list
-becomes `null`; arbitrary free text is never echoed. Approved names describe inputs,
-not causal explanations or measured importance. Current persistence outputs leave
-both optional columns blank. Valid provided cutoff values are preserved, not inferred
-from delivery times. The service rejects incomplete or invalid engine results.
+Driver text is filtered against an explicit approved-name set: the legacy
+`last_imbalance_price` input marker and the nine verified P50 categories listed below.
+An empty value, unknown name or mixed approved/unapproved list becomes `null`;
+arbitrary free text is never echoed. Valid lists retain engine order, with duplicate
+identifiers removed. Current persistence outputs leave both optional columns blank.
+Valid provided cutoff values are preserved, not inferred from delivery times. The
+service rejects incomplete or invalid engine results.
+
+Approved P50 categories: `renewable_production`, `consumption`, `production`,
+`cross_border_flows`, `neighboring_markets`, `balancing_conditions`, `historical_prices`,
+`spot_price_conditions`, `calendar_horizon`. LightGBM emits up to three nonzero signed
+category totals ranked by absolute size, with identifier order breaking ties. These
+labels explain P50 only, not spike/direction probabilities or physical causation.
+For relative forecasts, the spot category can include the deterministic reconstruction
+offset as well as learned effects; it is not exclusively learned SHAP importance.
+Numeric contributions, feature values, offsets and model references remain private.
+Unavailable or zero-effect explanations remain null. The legacy persistence marker
+describes an input and does not claim a measured contribution ranking.
+
+This allowlist update passes new engine labels through cached JSON and `/api/forecast`
+when an ML predictor is supplied through the existing trusted composition hook. It
+does not select a new predictor, change the nullable string response type or add a
+frontend display. The default startup still uses persistence. Future category names
+require explicit application approval and tests; do not derive the allowlist
+automatically from engine internals or permit arbitrary text.
+
+Focused verification for the driver boundary, from the repository root:
+
+```bash
+.venv/bin/python -W error::FutureWarning -m unittest backend.tests.test_forecast_service backend.tests.test_forecast_api forecast_engine.tests.test_model_compatibility.ModelCompatibilityTests.test_same_public_caller_and_backend_serializer -v
+```
+
+On Windows substitute `.venv\Scripts\python.exe`. The HTTP tests include a genuine
+LightGBM relative forecast from small invented CSV inputs when the optional ML setup
+is installed. No challenge datasets or full-data training are used. Frontend rendering
+is handled separately by the frontend owner.
 
 There is no automatic model promotion. A separately approved alternative predictor
 can be supplied via `prepare_forecast(config, predictor=..., model_id="recipe-v2")`

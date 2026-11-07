@@ -568,6 +568,14 @@ and explicit authorization before the next substep.
 
 ## Step 3. Add model contributions and meaningful top_drivers
 
+Split this milestone into two sequential, independently testable substeps. Implement
+only the explicitly authorized substep, provide its review handoff and stop for review
+and explicit authorization. Approval of 3A does not authorize 3B or Step 4. Keep the
+same attribution records and calculation path across both substeps; no temporary
+implementation or extra application interface is needed.
+
+### Step 3A. Calculate and verify private model contributions
+
 **Objective and implementation:** Implement native `pred_contrib=True` attribution
 for the supported ordinary-tree heads, using the exact features, model iteration and
 class mapping used for prediction. This is prediction-specific model contribution,
@@ -592,15 +600,10 @@ with `spot_price_conditions`. It is not a learned SHAP effect. Only claim a fina
 decomposition when that offset and every other transformation are explicitly accounted
 for. Never serialize the offset or a reference/contribution that reveals spot values.
 
-Group feature contributions by signed sum using the registry, preserving additivity;
-retain individual contributions privately so within-category cancellation is visible.
-Populate `top_drivers` with at most three nonzero categories ranked by absolute grouped
-contribution, stable identifier order for ties, semicolon-separated and without numeric
-values. It explains P50 only. Document this definition in the engine-local guide and
-application handoff. Relative reconstruction can contribute its category to this
-ranking, explicitly distinguished privately from learned effects. Zero contributions
-or unsupported complete P50 explanations yield blank optional text; persistence
-fallback rows do not receive LightGBM drivers.
+Group feature contributions privately by signed sum using the registry, preserving
+additivity. Retain individual contributions so within-category cancellation is visible,
+and keep the reconstruction offset distinct from learned feature effects. Build the
+verified calculation path now; selecting public driver labels is reserved for 3B.
 
 Implement target-specific internal records for direction and spike classes where
 native outputs are verified. Their additive contributions explain raw class margins;
@@ -608,8 +611,8 @@ record softmax/calibration separately. Do not call them probability-point change
 reuse P50 categories as explanations of those heads. The class, baseline and unit
 must always be explicit. Quantile attribution has the same transformation caveats.
 If calibration/blending later prevents a faithful final-output attribution, keep the
-raw-head scope explicit privately and leave affected final-P50 `top_drivers` blank
-until a valid decomposition is available.
+raw-head scope explicit privately. Mark complete P50 explanations unavailable when
+their transformations cannot be accounted for; 3B must leave those drivers blank.
 
 Allow internal comparison of contributions for the same delivery at consecutive
 origins under the same frozen model/registry, using genuinely generated forecasts.
@@ -617,27 +620,84 @@ This can later support explanations of revisions, but is not evidence of revised
 upstream weather/day-ahead forecasts: the supplied latest-vintage data cannot provide
 that history. No revision endpoint or narrative generator is included.
 
-**Expected new files:** `explainability/{__init__,records,contributions,drivers}.py`,
-`tests/test_explainability.py`; modify candidate result assembly and local experiment
-guide. Reuse registry metadata; no public contract or application file changes.
+**Expected new engine files (4):** `explainability/{__init__,records,contributions}.py`
+and `tests/test_explainability.py`. Modify private head/candidate helpers in
+`models/{heads,lightgbm}.py` and the engine-local experiment guide as needed. Reuse
+registry metadata. Do not connect attribution to forecast result assembly or populate
+`top_drivers` yet; existing prediction behavior and optional text stay unchanged.
 
 **Verify:** Test additive reconstruction with tolerances for price and each class raw
 margin, multiclass shapes/class order, units/signs, grouped sums/cancellation, stable
-ranking, zero effects and prediction-specific variation on synthetic models. Test
-relative reconstruction, fallback, quantile constraints and unsupported transformations.
-Perturb unavailable inputs and confirm predictions/drivers are unchanged. Privacy tests
-must prohibit raw spot values, offset values, feature values and numeric attributions
-in `top_drivers` or safe logs. Check output schema/export and official validator with
-populated optional text. Fingerprint fitted state through attribution calls.
+row identity, zero effects and prediction-specific variation on small synthetic native
+models. Test relative reconstruction, the active direct-price backup, quantile
+constraints and unsupported transformations. Perturb unavailable inputs and confirm
+predictions and contributions are unchanged. Verify comparisons for the same delivery
+at consecutive origins under the same frozen model/registry. Check private records do
+not leak values through repr/logging or become public result fields. Fingerprint fitted
+state through attribution calls. Follow the standing test selection rule: exercise the
+new contribution tests and affected head/target/prediction checks, without automatically
+repeating all suites or full-data training runs.
 
-**After this step / deliverables:** Verified internal attribution records for supported
-heads and safe P50 category identifiers in the existing optional CSV column, with
-scope/units/transformation documentation and an application coordination handoff.
+**After this substep / deliverables:** A tested private explanation helper and records
+covering supported price heads and classifier raw margins, category grouping,
+reconstruction/fallback semantics and same-delivery comparisons. Forecast consumers
+continue to receive the existing numerical outputs and unchanged optional text.
 
 **Acceptance criteria:** Explanations reconstruct exactly their stated target/scale
-within tolerance and distinguish final values from components. `top_drivers` is
-model-derived, deterministic and free of restricted values; unavailable/fallback
-explanations remain blank. No LLM, public explanation interface or causal claim.
+within tolerance and distinguish raw head values, deterministic offsets and final
+outputs. Active-head identity, class mapping, units and complete transformation scope
+are explicit; unsupported explanations fail safely. Fitted state and prediction
+behavior remain unchanged. No numeric explanation data enters public results or logs.
+
+**Anticipated cross-boundary changes:** None required for private engine calculations.
+A public explanation accessor, record schema or response endpoint requires a separate
+notice covering privacy, target/scale semantics, versioning and migration. Do not edit
+application code or introduce that interface in 3A.
+
+### Step 3B. Produce safe top_drivers and verify forecast integration
+
+**Objective and implementation:** Reuse the accepted 3A contribution records and signed
+category sums to populate `top_drivers` with at most three nonzero categories ranked
+by absolute grouped contribution, stable identifier order for ties, semicolon-separated
+and without numeric values. It explains P50 only. Document this definition in the
+engine-local guide and application handoff. Relative reconstruction can contribute
+`spot_price_conditions` to the ranking, explicitly distinguished privately from learned
+effects and accounted for exactly once.
+
+Wire the verified private helper into candidate result assembly without refitting or
+changing numerical forecasts, public signatures or the 13-column schema. Direct-price
+backup rows must use their active direct head's explanation rather than relative-head
+contributions. Zero contributions or unsupported complete P50 explanations yield blank
+optional text; persistence fallback rows do not receive LightGBM drivers. If a later
+transformation prevents a faithful final-P50 decomposition, leave the affected drivers
+blank. Do not reuse P50 labels as explanations of direction/spike probabilities.
+
+**Expected new engine files (1):** `explainability/drivers.py`. Extend
+`tests/test_explainability.py` and existing model/compatibility tests as needed; modify
+candidate result assembly and the engine-local experiment guide. No new public
+explanation method, response field, narrative generator or revision endpoint.
+
+**Verify:** Test strongest-category selection, signed grouping/cancellation, stable
+ties, the three-category limit, zero effects and unsupported/fallback paths. Cover both
+target modes and mixed relative/direct-backup horizons. Perturb unavailable inputs and
+confirm predictions/drivers are unchanged; fingerprint fitted state through integrated
+prediction. Privacy tests must prohibit raw spot values, offset values, feature values
+and numeric attributions in `top_drivers` or safe logs. Compare numerical forecasts
+before/after integration, check the output schema/export and run the unchanged official
+validator on a small synthetic export with populated optional text. Verify backend
+serialization remains compatible, including filtering of unapproved driver identifiers.
+Select focused driver, prediction, export and consumer tests under the standing rule;
+full-data accuracy comparisons are not required solely for adding optional labels.
+
+**After this substep / deliverables:** Safe, model-derived P50 category identifiers in
+the existing optional forecast/CSV column, backed by 3A calculations and documented
+scope/units/transformation semantics. Include an application coordination handoff for
+displaying the new categories.
+
+**Acceptance criteria:** Driver labels are deterministic and derived from the verified
+complete P50 explanation for the active price path. Unsupported explanations remain
+blank, restricted values stay private, and numerical predictions, frozen state and
+existing forecast/export/backend integration are preserved. No LLM or causal claim.
 
 **Anticipated cross-boundary changes:** The current backend `schemas.py` approves only
 `last_imbalance_price`; new category names will be filtered to null until the application
@@ -646,6 +706,11 @@ editing it. Existing predictor injection in `prepare_forecast` supports the cont
 A richer explanation accessor/record schema or response endpoint needs a separate
 notice covering privacy, target/scale semantics, versioning and migration. Internal
 attribution and CSV development can proceed without that public interface.
+
+The planned new-file total remains five: four in 3A and one in 3B. Existing tests grow
+with their relevant checks. Each substep reports the standing integration and
+cross-boundary statuses and stops for review and explicit authorization before the
+next substep. Step 3 is complete only when both substeps are accepted.
 
 ## Step 4. Improve the same architecture through controlled experiments
 
@@ -814,7 +879,7 @@ acceptance can proceed through the existing contract without rich explanation ac
 This planning task modifies only `docs/model-improvement-roadmap.md`. No source file,
 application file, dependency, test or training run is changed/executed by drafting.
 
-For implementation, obtain explicit authorization for one step (or one Step 1/2 substep)
+For implementation, obtain explicit authorization for one step or defined substep
 and any cross-boundary
 prerequisites. At completion, stop and provide scope, exact changed files, rationale,
 branch/base/HEAD, actual commands/results, dependency environment, private output

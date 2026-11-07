@@ -73,7 +73,9 @@ class LightGBMTests(unittest.TestCase):
         result = forecast(fitted, self.data, origins=[self.config.fit_cutoff_utc])
         validate_forecasts(result.forecasts, origins=[self.config.fit_cutoff_utc])
         self.assertEqual(len(result.forecasts), 40)
-        self.assertTrue(result.forecasts.top_drivers.isna().all())
+        from forecast_engine.features.registry import CATEGORIES
+        self.assertTrue(all(set(text.split(";")).issubset(CATEGORIES)
+                            for text in result.forecasts.top_drivers.dropna()))
         self.assertTrue(result.forecasts.data_cutoff_utc.isna().all())
         features = build_features(self.data, origins=[self.config.fit_cutoff_utc], feature_names=fitted._feature_names)
         matrix = features.frame[list(fitted._feature_names)]

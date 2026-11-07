@@ -146,6 +146,32 @@ class ForecastServiceTests(unittest.TestCase):
         self.assertTrue(all(p["top_drivers"] is None for p in response["points"][1:]))
         self.assertNotIn(PRIVATE_SENTINEL, json.dumps(response))
 
+    def test_verified_p50_categories_and_order_survive_the_response_boundary(self):
+        categories = ("renewable_production", "consumption", "production", "cross_border_flows",
+                      "neighboring_markets", "balancing_conditions", "historical_prices",
+                      "spot_price_conditions", "calendar_horizon")
+        for index, name in enumerate(categories):
+            self.result.forecasts.loc[index, "top_drivers"] = name
+        combined = "historical_prices;balancing_conditions;spot_price_conditions"
+        self.result.forecasts.loc[9, "top_drivers"] = combined
+        self.result.forecasts.loc[10, "top_drivers"] = "historical_prices;historical_prices"
+        response = self.prepare().response()
+        self.assertEqual(tuple(p["top_drivers"] for p in response["points"][:9]), categories)
+        self.assertEqual(response["points"][9]["top_drivers"], combined)
+        self.assertEqual(response["points"][10]["top_drivers"], "historical_prices")
+        self.assertNotIn(PRIVATE_SENTINEL, json.dumps(response))
+
+    def test_category_allowlist_rejects_mixed_unknown_numeric_and_free_text(self):
+        unsafe = ("historical_prices;" + PRIVATE_SENTINEL, "historical_prices;unknown",
+                  "historical_prices;", ";historical_prices", " historical_prices",
+                  "historical_prices\n", "9876543.21", "spot_price", "",
+                  "spot_price_conditions=" + PRIVATE_SENTINEL, '{"historical_prices":123}')
+        for index, text in enumerate(unsafe):
+            self.result.forecasts.loc[index, "top_drivers"] = text
+        response = self.prepare().response()
+        self.assertTrue(all(point["top_drivers"] is None for point in response["points"]))
+        self.assertNotIn(PRIVATE_SENTINEL, json.dumps(response))
+
     def test_invalid_engine_outputs_fail_without_repair_or_partial_response(self):
         for column, value in [("p50", float("nan")), ("p90", float("inf")),
                               ("p10", 1000.), ("p_up", -1.), ("p_none", .9),
