@@ -12,12 +12,15 @@ import numpy as np
 import pandas as pd
 from pandas.testing import assert_frame_equal
 
-from forecast_engine import ForecastInputs
+from forecast_engine import ForecastInputs, RunConfig
 from forecast_engine.data import LONG_COLUMNS
 from forecast_engine.features import (
     DEFAULT_FEATURE_NAMES, FEATURE_REGISTRY, REGISTRY_VERSION, build_features,
 )
 from forecast_engine.features.registry import CATEGORIES
+from forecast_engine.features.training import (
+    ChronologicalFold, build_training_examples, expanding_window_folds,
+)
 
 
 def long_rows(*records):
@@ -256,6 +259,7 @@ def audit(event, args):
         raise AssertionError("external work")
 sys.addaudithook(audit)
 import forecast_engine.features
+import forecast_engine.features.training
 assert not {"pandas", "numpy", "lightgbm"}.intersection(sys.modules)
 '''
         with tempfile.TemporaryDirectory() as directory:
@@ -264,6 +268,191 @@ assert not {"pandas", "numpy", "lightgbm"}.intersection(sys.modules)
             self.assertEqual(completed.returncode, 0, completed.stderr)
             self.assertEqual(completed.stdout + completed.stderr, "")
             self.assertEqual(list(Path(directory).iterdir()), [])
+
+
+class TrainingExampleTests(unittest.TestCase):
+    cutoff = pd.Timestamp("2026-08-24T00:00Z")
+    origin = cutoff - pd.Timedelta(hours=1)
+
+    def config(self):
+        return RunConfig(RunConfig.validation().label_start_utc, self.cutoff, self.cutoff)
+
+    def build(self, records=(), spot=(), *, origins=None, config=None, feature_names=DEFAULT_FEATURE_NAMES):
+        return build_training_examples(
+            ForecastInputs(long_rows(*records), None if spot is None else long_rows(*spot)),
+            config=self.config() if config is None else config,
+            origins=[self.origin] if origins is None else origins, feature_names=feature_names,
+        )
+
+    def test_independent_head_masks_and_paired_spike_dependencies(self):
+        deliveries = [self.origin + pd.Timedelta(minutes=15 * i) for i in range(4)]
+        records = [
+            ("fi_imbalance_price", deliveries[0], self.cutoff, 151),
+            ("fi_mfrr_direction", deliveries[1], self.cutoff, -1),
+            ("fi_imbalance_price", deliveries[2], self.cutoff, 50),
+            ("fi_mfrr_direction", deliveries[2], self.cutoff, 1),
+        ]
+        spot = [("fi_spot_price", deliveries[i], self.cutoff, 100) for i in (0, 1)]
+        result = self.build(records, spot)
+        self.assertEqual(result.eligible.iloc[:4].values.tolist(), [
+            [True, False, True], [False, True, False], [True, True, False], [False, False, False]])
+        self.assertEqual(result.labels.spike_class.iloc[0], "high")
+        self.assertEqual(result.labels.spot_price.iloc[1], 100)
+        self.assertTrue(pd.isna(result.labels.imbalance_price.iloc[1]))
+        self.assertIsNone(result.label_evidence[1].spike)
+        self.assertEqual({s.series_id for s in result.label_evidence[0].spike.sources},
+                         {"fi_imbalance_price", "fi_spot_price"})
+        self.assertEqual(len(result.features.frame), 40)
+        # Both labels were published after the historical origin, so spot is not a feature.
+        self.assertTrue(result.features.frame.fi_spot_price_delivery.isna().all())
+
+    def test_publication_cutoff_and_partial_horizon_purging(self):
+        records = [("fi_imbalance_price", self.origin + pd.Timedelta(minutes=15 * i), self.cutoff, i)
+                   for i in range(40)]
+        result = self.build(records, spot=None)
+        self.assertEqual(result.eligible.price.sum(), 4)
+        self.assertTrue(result.labels.imbalance_price.iloc[4:].isna().all())
+        self.assertTrue(all(e.price is None for e in result.label_evidence[4:]))
+        # Publication equality is allowed, publication one hour later is excluded.
+        records[0] = ("fi_imbalance_price", self.origin, self.cutoff + pd.Timedelta(hours=1), 999)
+        delayed = self.build(records)
+        self.assertEqual(delayed.eligible.price.sum(), 3)
+        self.assertIsNone(delayed.label_evidence[0].price)
+        self.assertEqual(delayed.label_evidence[1].price.sources[0].first_usable_origin_utc, self.cutoff)
+
+    def test_each_spike_label_dependency_must_be_eligible(self):
+        for late_series in ("fi_imbalance_price", "fi_spot_price"):
+            values = {
+                s: (s, self.origin, self.cutoff + pd.Timedelta(hours=int(s == late_series)), 200 if
+                    s == "fi_imbalance_price" else 100)
+                for s in ("fi_imbalance_price", "fi_spot_price")
+            }
+            result = self.build([values["fi_imbalance_price"]], [values["fi_spot_price"]])
+            self.assertFalse(result.eligible.spike.any())
+            self.assertIsNone(result.label_evidence[0].spike)
+            self.assertEqual(result.eligible.price.iloc[0], late_series != "fi_imbalance_price")
+
+    def test_strict_spike_boundaries_and_direction_zero(self):
+        prices = [150, 50, 151, 49]
+        records, spot = [], []
+        for i, price in enumerate(prices):
+            delivery = self.origin + pd.Timedelta(minutes=15 * i)
+            records.extend([("fi_imbalance_price", delivery, self.cutoff, price),
+                            ("fi_mfrr_direction", delivery, self.cutoff, 0)])
+            spot.append(("fi_spot_price", delivery, self.cutoff, 100))
+        result = self.build(records, spot)
+        self.assertEqual(list(result.labels.spike_class.iloc[:4]), ["neither", "neither", "high", "low"])
+        self.assertTrue(result.eligible.direction.iloc[:4].all())
+        self.assertTrue(result.labels.direction.iloc[:4].eq(0).all())
+
+    def test_historical_feature_parity_and_label_lineage_times(self):
+        records = [
+            ("fi_imbalance_price", self.origin - pd.Timedelta(minutes=15), self.origin, 12),
+            ("fi_imbalance_price", self.origin, self.cutoff, 60),
+            ("fi_mfrr_direction", self.origin, self.cutoff, 1),
+        ]
+        result = self.build(records)
+        direct = build_features(ForecastInputs(long_rows(*records), long_rows()), origins=[self.origin])
+        assert_frame_equal(result.features.frame, direct.frame)
+        self.assertEqual(result.features.evidence, direct.evidence)
+        for row in result.features.evidence:
+            for dependency in row.dependencies:
+                self.assertEqual(dependency.used_at_utc, self.origin)
+        for row in result.label_evidence:
+            for dependency in (row.price, row.direction, row.spot, row.spike):
+                if dependency is None:
+                    continue
+                self.assertEqual(dependency.used_at_utc, self.cutoff)
+                for source in dependency.sources:
+                    self.assertTrue(self.config().label_start_utc <= source.timestamp_utc < self.cutoff)
+                    self.assertLessEqual(source.first_usable_origin_utc, self.cutoff)
+
+    def test_ineligible_label_changes_and_removal_preserve_examples_and_evidence(self):
+        valid = [("fi_imbalance_price", self.origin, self.cutoff, 30)]
+        excluded = [
+            ("fi_imbalance_price", self.cutoff, self.cutoff + pd.Timedelta(hours=1), 900),
+            ("fi_mfrr_direction", self.origin, self.cutoff + pd.Timedelta(hours=1), 2),
+        ]
+        base = self.build(valid)
+        for records in (valid + excluded, valid + [(s, d, p, -900) for s, d, p, v in excluded]):
+            result = self.build(records)
+            assert_frame_equal(result.features.frame, base.features.frame)
+            assert_frame_equal(result.labels, base.labels)
+            assert_frame_equal(result.eligible, base.eligible)
+            self.assertEqual(result.label_evidence, base.label_evidence)
+            self.assertEqual(result.features.evidence, base.features.evidence)
+
+    def test_label_start_boundary_invalid_origins_and_empty_label_tables(self):
+        config = RunConfig(self.origin, self.cutoff, self.cutoff)
+        records = [("fi_imbalance_price", self.origin, self.cutoff, -5)]
+        result = self.build(records, config=config)
+        self.assertTrue(result.eligible.price.iloc[0])
+        for origins in ([self.origin - pd.Timedelta(hours=1)], [self.cutoff], [],
+                        [self.origin, self.origin], [datetime(2026, 8, 23, 23)],
+                        [self.origin + pd.Timedelta(nanoseconds=1)]):
+            with self.subTest(origins=origins), self.assertRaises(ValueError):
+                self.build(config=config, origins=origins)
+        empty = self.build(spot=None)
+        self.assertFalse(empty.eligible.any().any())
+        self.assertTrue(empty.labels.isna().all().all())
+        with self.assertRaisesRegex(ValueError, "direction labels require"):
+            self.build([("fi_mfrr_direction", self.origin, self.cutoff, 3)])
+
+    def test_overlapping_deliveries_keep_distinct_origin_features(self):
+        earlier = self.origin - pd.Timedelta(hours=1)
+        records = [("fi_imbalance_price", earlier - pd.Timedelta(minutes=15), earlier, 10),
+                   ("fi_imbalance_price", self.origin - pd.Timedelta(minutes=15), self.origin, 20),
+                   ("fi_imbalance_price", self.origin, self.cutoff, 30)]
+        result = self.build(records, origins=[self.origin, earlier])
+        self.assertEqual(result.labels.imbalance_price.iloc[4], 30)
+        self.assertEqual(result.labels.imbalance_price.iloc[40], 30)
+        self.assertEqual(result.label_evidence[4], result.label_evidence[40])
+        self.assertEqual(result.features.frame.fi_imbalance_price_latest.iloc[4], 10)
+        self.assertEqual(result.features.frame.fi_imbalance_price_latest.iloc[40], 20)
+
+    def test_input_detachment_and_private_representations(self):
+        marker = 987654.321
+        inputs = ForecastInputs(long_rows(("fi_imbalance_price", self.origin, self.cutoff, marker)),
+                                long_rows(("fi_spot_price", self.origin, self.cutoff, marker)))
+        original = inputs.series.copy(deep=True)
+        original_spot = inputs.spot.copy(deep=True)
+        result = build_training_examples(inputs, config=self.config(), origins=[self.origin])
+        assert_frame_equal(inputs.series, original)
+        assert_frame_equal(inputs.spot, original_spot)
+        self.assertNotIn(str(marker), repr(result))
+        self.assertNotIn(str(marker), repr(result.label_evidence))
+        inputs.series.loc[:, "value"] = 0
+        self.assertEqual(result.labels.imbalance_price.iloc[0], marker)
+
+    def test_default_expanding_folds_have_correct_local_weeks_and_no_future_training(self):
+        folds = expanding_window_folds()
+        self.assertEqual(len(folds), 2)
+        self.assertEqual(folds[0].assessment_start_utc, pd.Timestamp("2026-08-23T21:00Z"))
+        self.assertEqual(folds[1].assessment_end_utc, RunConfig.validation().fit_cutoff_utc)
+        self.assertGreater(len(folds[1].training_origins), len(folds[0].training_origins))
+        for fold in folds:
+            self.assertEqual(len(fold.assessment_origins), 168)
+            self.assertLess(max(fold.training_origins), min(fold.assessment_origins))
+            self.assertEqual(fold.config.label_end_utc, fold.assessment_start_utc)
+            origin = fold.training_origins[-1]
+            records = [("fi_imbalance_price", origin + pd.Timedelta(minutes=15 * i),
+                        fold.config.fit_cutoff_utc, i) for i in range(40)]
+            result = self.build(records, config=fold.config, origins=[origin])
+            self.assertEqual(result.eligible.price.sum(), 4)
+        with self.assertRaises(FrozenInstanceError):
+            folds[0].assessment_end_utc = self.cutoff
+
+    def test_invalid_or_overlapping_assessment_windows_are_rejected(self):
+        start, end = self.origin, self.cutoff
+        for windows in ([], [(end, start)], [(start, start)],
+                        [(start, end), (start, end)], [(end, end + pd.Timedelta(hours=1)), (start, end)],
+                        [(start, pd.Timestamp("2026-09-07T00:00Z"))],
+                        [(datetime(2026, 8, 23), end)]):
+            with self.subTest(windows=windows), self.assertRaises(ValueError):
+                expanding_window_folds(assessment_windows=windows)
+        with self.assertRaises(ValueError):
+            ChronologicalFold(self.config(), self.cutoff + pd.Timedelta(hours=1),
+                              self.cutoff + pd.Timedelta(hours=2))
 
 
 if __name__ == "__main__":

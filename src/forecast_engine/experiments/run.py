@@ -1,0 +1,242 @@
+"""Fit once, predict, validate, then score. No work or heavy imports on import.
+
+Uses existing internal evaluation adapters for hashing, safe provenance and official
+subprocess reports; numerical metrics are computed exclusively by unchanged score.py.
+The existing evaluation.run_workflow and CLI are not modified. Runtime artifacts,
+especially generated fold actuals containing restricted spot data, must stay private.
+"""
+
+import argparse
+from datetime import datetime, timezone
+import json
+import math
+from pathlib import Path
+import re
+import sys
+import time
+
+from .. import evaluation
+from ..availability import select_fitting_labels
+from ..config import RunConfig
+from ..data import load_inputs
+from ..engine import forecast
+from ..features.training import ChronologicalFold, expanding_window_folds
+from ..models import PersistencePredictor
+from ..submission import export_forecasts
+
+METRICS = ("mae_p50", "calibration_pinball_mean", "brier_spike_mean", "brier_direction")
+COUNTS = ("rows_in_submission", "rows_skipped_price", "rows_scored_price",
+          "rows_scored_spike", "rows_scored_direction")
+
+
+class ExperimentError(RuntimeError):
+    """Fixed-format failure; source values and original exception text are suppressed."""
+
+
+def _validation_origins():
+    import pandas as pd
+
+    return tuple(pd.date_range(RunConfig.validation().fit_cutoff_utc,
+                               RunConfig.test().fit_cutoff_utc, inclusive="left", freq="h"))
+
+
+def _read_scores(path):
+    """Read only official aggregates; no metric implementations or raw CSV logging."""
+    import pandas as pd
+
+    summary = pd.read_csv(path, usecols=[*METRICS, *COUNTS, "coverage_p10_p90"])
+    if len(summary) != 1:
+        raise ValueError("expected one score summary row")
+    row = summary.iloc[0]
+    result = {}
+    for name in (*METRICS, "coverage_p10_p90"):
+        value = float(row[name])
+        if math.isinf(value) or value < 0:
+            raise ValueError("invalid official metric")
+        result[name] = None if math.isnan(value) else value
+    for name in COUNTS:
+        value = float(row[name])
+        if not math.isfinite(value) or value < 0 or not value.is_integer():
+            raise ValueError("invalid official count")
+        result[name] = int(value)
+    return result
+
+
+def _fold_actuals(data, fold):
+    """Scoring-only outcomes in the assessment interval, never handed to a predictor.
+
+    Use rows published by the outer pre-validation cutoff. Assessment tail deliveries
+    outside the fold interval are intentionally unlabelled, as in official validation.
+    Preserve independent missing price/spot/direction values so score.py decides each
+    metric's matched rows. No test or official validation outcomes are included.
+    """
+    import pandas as pd
+
+    scoring_config = RunConfig(fold.assessment_start_utc, fold.assessment_end_utc,
+                               RunConfig.validation().fit_cutoff_utc)
+    rows = select_fitting_labels(data.series, scoring_config)
+    required = rows.loc[rows.series_id.isin(["fi_imbalance_price", "fi_mfrr_direction"])]
+    wide = required.pivot(index="timestamp_utc", columns="series_id", values="value")
+    if data.spot is not None:
+        spot = select_fitting_labels(data.spot, scoring_config)
+        if not (spot.series_id.eq("fi_spot_price") & spot.source.eq("nordpool")).all():
+            raise ValueError("invalid fold spot input")
+        wide = wide.join(spot.set_index("timestamp_utc")["value"].rename("spot_price"), how="outer")
+    wide = wide.reindex(columns=["fi_imbalance_price", "spot_price", "fi_mfrr_direction"])
+    direction = wide["fi_mfrr_direction"]
+    if not direction.dropna().isin([-1, 0, 1]).all():
+        raise ValueError("invalid fold direction")
+    actuals = pd.DataFrame({
+        "delivery_start_utc": wide.index.strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "imbalance_price": wide.fi_imbalance_price.to_numpy(),
+        "spot_price": wide.spot_price.to_numpy(),
+        "direction": direction.map({1: "up", -1: "down", 0: "none"}).to_numpy(),
+    })
+    return actuals
+
+
+def run_experiment(*, starter_dir, data_dir, output_dir, fold=None,
+                   predictor=None, recipe_id=None):
+    """Run validation (fold=None) or a Step 1B ChronologicalFold.
+
+    A custom Predictor needs an explicit safe recipe identifier; it uses the existing
+    fit/forecast contract. No model selection, tuning, fitting-label construction or
+    feature caching is added here. Prediction inputs are long series/spot only.
+    Actuals access/creation follows successful official structural validation.
+    """
+    import pandas as pd
+
+    if fold is not None and not isinstance(fold, ChronologicalFold):
+        raise ExperimentError("experiment requires a chronological fold or validation")
+    if predictor is None:
+        predictor = PersistencePredictor()
+        recipe_id = recipe_id or "persistence-v1"
+    if not isinstance(recipe_id, str) or not re.fullmatch(r"[a-zA-Z0-9_-]{1,80}", recipe_id):
+        raise ExperimentError("experiment requires a safe explicit recipe identifier")
+    starter, data_dir, output = map(lambda p: Path(p).resolve(), (starter_dir, data_dir, output_dir))
+    if output.exists() and (not output.is_dir() or any(output.iterdir())):
+        raise ExperimentError("experiment output must be a new or empty directory")
+    inputs, spot = data_dir / "inputs.csv", data_dir / "spot_nordpool.csv"
+    actuals = data_dir / "actuals_validation.csv" if fold is None else output / "fold_actuals.csv"
+    # Never allow private outputs to overwrite a source or starter file.
+    if output == starter or output == data_dir:
+        raise ExperimentError("experiment output must be separate from input directories")
+    config = RunConfig.validation() if fold is None else fold.config
+    origins = _validation_origins() if fold is None else fold.assessment_origins
+    manifest = {
+        "status": "running", "stage": "preflight", "recipe_id": recipe_id,
+        "period": "validation" if fold is None else "prevalidation_fold",
+        "started_utc": datetime.now(timezone.utc).isoformat(),
+        "config": {name: getattr(config, name).isoformat() for name in (
+            "label_start_utc", "label_end_utc", "fit_cutoff_utc")},
+        "request": {"first_origin_utc": origins[0].isoformat(),
+                    "last_origin_utc": origins[-1].isoformat(), "origin_count": len(origins)},
+        "consumed_files": {}, "official_commands": [], "artifacts": {}, "timings": {},
+    }
+    try:
+        output.mkdir(parents=True, exist_ok=True)
+    except OSError:
+        raise ExperimentError("cannot create experiment output directory") from None
+    started = time.perf_counter()
+    try:
+        manifest["environment"] = evaluation._environment()
+        for name, path in (("inputs", inputs), ("spot", spot),
+                           ("validator", starter / "validate_submission.py"),
+                           ("scorer", starter / "score.py")):
+            manifest["consumed_files"][name] = evaluation._file_record(path)
+        for name in ("README.md", "requirements.txt", "pyproject.toml", "availability.csv", "baseline.ipynb"):
+            path = starter / name
+            if path.is_file():
+                manifest["consumed_files"][name] = evaluation._file_record(path)
+        manifest["stage"] = "load"
+        stage_start = time.perf_counter()
+        data = load_inputs(inputs, spot_path=spot)
+        manifest["input_rows"] = {"series": len(data.series), "spot": len(data.spot)}
+        manifest["timings"]["load"] = time.perf_counter() - stage_start
+        manifest["stage"] = "fit"
+        stage_start = time.perf_counter()
+        fitted = predictor.fit(data, config=config)
+        if fitted.provenance.config != config:
+            raise ValueError("predictor returned a different fitting configuration")
+        manifest["timings"]["fit"] = time.perf_counter() - stage_start
+        manifest["stage"] = "predict"
+        stage_start = time.perf_counter()
+        result = forecast(fitted, data, origins=origins)
+        manifest["timings"]["predict"] = time.perf_counter() - stage_start
+        manifest["provenance"] = evaluation._safe_provenance(result)
+        manifest["forecast_rows"] = len(result.forecasts)
+        manifest["stage"] = "export"
+        submission = export_forecasts(result.forecasts, output / "forecast_backtest.csv", origins=origins)
+        origins_path = output / "forecast_origins.csv"
+        pd.DataFrame({"forecast_origin_utc": pd.DatetimeIndex(origins).strftime("%Y-%m-%dT%H:%M:%SZ")}).to_csv(
+            origins_path, index=False, lineterminator="\n")
+        manifest["artifacts"].update(forecast=str(submission), origins=str(origins_path))
+        manifest["stage"] = "validate"
+        evaluation._run_tool("validation", starter / "validate_submission.py",
+                             ["--backtest", submission, "--origins", origins_path], starter, output, manifest)
+        manifest["stage"] = "scoring_actuals"
+        if fold is not None:
+            _fold_actuals(data, fold).to_csv(actuals, index=False, lineterminator="\n")
+            manifest["scoring_label_config"] = {
+                "delivery_start_utc": fold.assessment_start_utc.isoformat(),
+                "delivery_end_utc": fold.assessment_end_utc.isoformat(),
+                "publication_cutoff_utc": RunConfig.validation().fit_cutoff_utc.isoformat(),
+            }
+            manifest["artifacts"]["private_fold_actuals"] = str(actuals)
+        # First actuals-byte access is AFTER validation; never check/hash test actuals.
+        manifest["consumed_files"]["scoring_actuals"] = evaluation._file_record(actuals)
+        manifest["stage"] = "score"
+        score_dir = output / "score"
+        evaluation._run_tool("scoring", starter / "score.py", ["--submission", submission,
+                             "--actuals", actuals, "--spike-margin", "50", "--output-dir", score_dir],
+                             starter, output, manifest)
+        manifest["metrics"] = _read_scores(score_dir / "score_summary.csv")
+        if manifest["metrics"]["rows_in_submission"] != len(result.forecasts):
+            raise ValueError("scorer returned mismatched row count")
+        for name in ("score_summary.csv", "score_summary.md", "score_by_horizon.csv"):
+            manifest["artifacts"][name] = str(score_dir / name)
+        manifest["stage"] = "integrity"
+        for record in manifest["consumed_files"].values():
+            if evaluation._sha256(record["path"]) != record["sha256"]:
+                raise ValueError("experiment source changed during execution")
+        if evaluation._package_fingerprints() != manifest["environment"]["package_sources_sha256"]:
+            raise ValueError("package sources changed during execution")
+        manifest["artifact_sha256"] = {name: evaluation._sha256(path)
+                                          for name, path in manifest["artifacts"].items()}
+        manifest["status"], manifest["stage"] = "complete", "complete"
+    except Exception as error:
+        manifest["status"] = "failed"
+        manifest["failure"] = {"stage": manifest["stage"], "error_type": type(error).__name__}
+        raise ExperimentError(f"experiment failed during {manifest['stage']} ({type(error).__name__}); see run_manifest.json") from None
+    finally:
+        manifest["elapsed_seconds"] = time.perf_counter() - started
+        manifest["finished_utc"] = datetime.now(timezone.utc).isoformat()
+        (output / "run_manifest.json").write_text(json.dumps(manifest, indent=2, allow_nan=False) + "\n", encoding="utf-8")
+    return manifest
+
+
+class _Parser(argparse.ArgumentParser):
+    def error(self, message):
+        self.exit(2, "Invalid experiment arguments; use --help.\n")
+
+
+def main(argv=None):
+    parser = _Parser(description="Private chronological experiment using unchanged official tools.")
+    parser.add_argument("--period", choices=("validation", "fold-1", "fold-2"), default="validation")
+    parser.add_argument("--starter-dir", type=Path, default=Path("."))
+    parser.add_argument("--data-dir", type=Path, default=Path("data"))
+    parser.add_argument("--output-dir", type=Path, required=True)
+    options = parser.parse_args(argv)
+    fold = None if options.period == "validation" else expanding_window_folds()[int(options.period[-1]) - 1]
+    try:
+        manifest = run_experiment(starter_dir=options.starter_dir, data_dir=options.data_dir,
+                                  output_dir=options.output_dir, fold=fold)
+    except Exception as error:
+        print(f"Experiment failed ({type(error).__name__}); inspect the safe run manifest if created.", file=sys.stderr)
+        return 1
+    print(f"Completed experiment: {manifest['forecast_rows']} forecast rows; see run_manifest.json.")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

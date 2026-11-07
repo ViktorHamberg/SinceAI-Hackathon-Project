@@ -109,6 +109,35 @@ Fit/preprocessing/calibration are frozen; attribution is read-only inference wor
   digest alone cannot replace the dependency records required by the existing contract.
   Do not weaken `engine.py` checks to accommodate a faster predictor.
 
+## Standing integration compatibility rule
+
+Apply this rule to every step and substep, including intermediate checkpoints. Keep
+the existing engine usable by the application backend and the current forecast export,
+official validation and scoring workflows throughout incremental development. New
+unfinished modules may remain unconnected; do not make existing consumers depend on
+them before they are ready.
+
+If a proposed change would temporarily break any of those integrations, inform the
+user before making it and obtain explicit approval through the cross-boundary protocol
+below, even if every edited file is inside the engine package. If an unexpected break
+is discovered, inform the user immediately rather than waiting for the step handoff.
+Name the affected consumer, failing behavior, impact on the coding partner, and the
+restoration plan and checks. Continue repairs within the authorized scope; separately
+approve any required work outside that scope. A planned later fix is not evidence that
+the current candidate is compatible.
+
+At each step/substep handoff explicitly report **Integration compatibility: Preserved**,
+**Broken** or **Not fully verified**, covering the backend and export/validation/scoring
+workflows separately where their status differs. List checks actually run and remaining
+gaps; do not claim compatibility solely because public signatures are unchanged.
+
+Flag a broken or materially unverified candidate as **Not ready to push**. Before
+recommending a push, require restoration and relevant compatibility verification plus
+independent review, or an explicit user-approved coordinated migration plan identifying
+the partner's required actions. Never recommend pushing a known integration break
+without explaining it and obtaining that coordination approval. Commit/push permission
+remains separate from step or review approval.
+
 ## Standing cross-boundary change protocol
 
 Apply this rule to every step, including dependencies and validation tooling. Before
@@ -650,7 +679,8 @@ For implementation, obtain explicit authorization for one step (or one Step 1 su
 and any cross-boundary
 prerequisites. At completion, stop and provide scope, exact changed files, rationale,
 branch/base/HEAD, actual commands/results, dependency environment, private output
-locations and limitations, plus the required cross-boundary status. Never infer a
+locations and limitations, plus the required cross-boundary and integration
+compatibility statuses. Never infer a
 successful check from an earlier log or silently proceed to the next step.
 
 Follow [the separate-chat review workflow](REVIEW.md). An APPROVE verdict covers the
