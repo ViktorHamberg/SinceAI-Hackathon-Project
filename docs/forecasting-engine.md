@@ -6,6 +6,11 @@ application. They do not start a web service or require Jupyter.
 
 ## Installation
 
+For ongoing engine/backend development, use the shared
+[uv environment workflow](python-environment.md), including its verification status.
+It preserves starter requirements and provides the same sync command on macOS and
+Windows. The pip examples below describe the original installation procedure.
+
 Use Python 3.11 or newer. The system `python3` on the development Mac points to 3.6,
 so select a suitable interpreter explicitly when creating an environment.
 

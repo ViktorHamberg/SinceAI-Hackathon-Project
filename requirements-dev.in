@@ -1,0 +1,13 @@
+# Shared Python environment for the engine, starter tools and backend.
+# Component owners edit their own manifests, then regenerate requirements-dev.lock.
+-r requirements.txt
+-r backend/requirements.txt
+-e .
+
+# Development build tools for the editable package (not forecasting runtime imports).
+setuptools>=64
+wheel
+
+# Preserve verified numerical-library versions during the environment migration.
+pandas==2.2.3
+numpy==2.3.5
