@@ -1,6 +1,6 @@
 # First forecasting engine: consolidated implementation plan
 
-**Status: plan approved; Steps 1–2 implemented and verified. Steps 3–6 await separate
+**Status: plan approved; Steps 1–3 implemented and verified. Steps 4–6 await separate
 explicit approval.**
 
 This plan combines the resolved Wayfinder map and the four resolved decision-ticket
@@ -240,6 +240,87 @@ finite eligible imbalance/spot pairs. Record counts and dependencies without pri
 **After this step:** Fitting returns explicit reusable state and calibration provenance,
 without generating forecasts or silently fabricating missing-evidence probabilities.
 
+### Step 3 result and verification
+
+Implemented `models/__init__.py`, `models/persistence.py`, and
+`tests/test_calibration.py`; extended the isolated import test to include the models.
+No original starter file, existing fit/predict signature, dependency, or data source
+was changed. The pre-existing dataset_id metadata normalization fix in `data.py` and
+`test_data.py` remains intact and is separate from the Step 3 implementation.
+
+Fitting is directly callable through the existing interface:
+
+```python
+from forecast_engine import RunConfig
+from forecast_engine.models import PersistencePredictor
+
+# data is an existing ForecastInputs instance; this call does no I/O.
+fitted = PersistencePredictor().fit(data, config=RunConfig.validation())
+# fitted.q10 / q90: 40 raw persistence-error offsets, not completed prices.
+# fitted.p_up / p_down / p_none / p_spike_high / p_spike_low: fitted frequencies.
+# fitted.error_counts: 40 per-horizon counts.
+# fitted.provenance: fitting boundaries, counts, source-use and derived evidence.
+```
+
+`FittedPersistence` uses frozen fields and immutable offset tuples. Its detached
+provenance counts are read-only; dependency records/tuples are immutable and retain no
+raw values. The object has no reference to caller-owned source tables. Its repr hides
+fitted numbers and lineage, keeping accidental logs small and value-free. It conforms
+to the existing FittedPredictor interface, but `predict(...)` explicitly raises
+NotImplementedError: actual prediction remains unimplemented pending Step 4 approval.
+
+Historical residual calibration reconstructs the latest available imbalance observation
+at each contributing hourly origin, with the reference's three-day search followed by
+all-earlier fallback. Each step independently looks up a label admitted by both RunConfig
+delivery and availability bounds. Evidence for each horizon's quantile statistic retains
+the target labels used at fitting time and the observations used at their historical
+origins. No missing early observation is fabricated; origins without a usable starting
+price do not contribute, and any horizon with no eligible error fails explicitly.
+
+Direction frequencies use eligible finite -1/0/1 labels. Spike frequencies use aligned
+eligible imbalance/spot deliveries and retain BOTH source dependencies, with strict
+`imbalance > spot + 50` and `imbalance < spot - 50` thresholds. Missing labels, missing
+spot pairs, invalid direction classes, or invalid fitted values produce clear errors
+without logging input values. Counts include each horizon, contributing historical
+origins, total error pairs, direction rows, both spike-source row counts, and spike pairs.
+
+Adaptations from baseline.ipynb's `calibrate()` and `persistence_at()`:
+
+- Preserve raw unrounded persistence residuals, NumPy linear empirical quantiles,
+  round-to-six-decimal frequencies and p_none computed as the remaining probability.
+  Quantile clipping and price/export rounding are deferred to Step 4 as in the reference.
+- Enforce the agreed delivery bounds as well as publication cutoffs. Excluded labels
+  cannot alter historical origin selection; stop the origin loop once later origins
+  cannot target any eligible label. This avoids useless iterations without changing
+  contributing pairs. Reconstruct observations only from eligible history, never from
+  held-out/test outcomes or observations unavailable at that historical origin.
+- Raise on missing essential evidence, invalid direction labels, or nonfinite errors
+  instead of the reference's missing-spot zeros or implicit NaN/stack failures.
+- Retain exact value-free dependency evidence, including historical source-use times,
+  rather than trusting the reference's summary maximum availability alone.
+
+Verification on the existing Python 3.12.14 / pandas 2.2.3 / NumPy 2.3.5 environment:
+
+```bash
+.venv/bin/python -W error::FutureWarning -m unittest discover -s tests -v
+.venv/bin/python -m compileall -q src/forecast_engine tests
+git diff --check
+```
+
+All **44 tests passed**, including all 31 existing tests. The 13 new checks cover
+known linear and nonlinear quantiles, per-step partial horizons, both standard cutoffs,
+historical publication delays, strict spike thresholds/both dependencies, excluded-label
+modification/removal invariance, three-day fallback, direction rounding, missing evidence,
+repeatable fitting, detached/frozen state, and value-free provenance. A test-only
+extraction of the unchanged notebook's calibration functions matches offsets within
+1e-12 and frequencies/counts exactly on eligible synthetic history. No notebook outputs
+are inspected, and package runtime never parses or executes the notebook.
+
+This is synthetic calibration verification, not a full-data baseline comparison or
+accuracy claim. No full-data fitting, forecast generation, CSV export, CLI, official
+forecast validation or scoring was run. Windows and real Parquet execution remain
+unverified in this environment. Step 4 still requires explicit user approval.
+
 ## Step 4. Implement in-memory forecasting and optional export
 
 **Implement:** Single-origin and batch prediction, using fitted state without refitting.
@@ -350,7 +431,7 @@ changed files and actual test results, then stop. Each subsequent step requires
 explicit user approval before work begins. If a step reveals a material scope change,
 explain it before proceeding. Do not commit, push or merge unless explicitly requested.
 
-Steps 1–2 are complete. Stop here until the user explicitly approves Step 3. The package
-foundation, data adapters, historical selection, dependency evidence and focused tests
-exist; there is no actual fitting, prediction, export, or engine CLI yet. No commit,
-push, or merge is authorized.
+Steps 1–3 are complete. Stop here until the user explicitly approves Step 4. The package
+foundation, data adapters, historical selection, frozen baseline fitting, dependency
+evidence and focused tests exist; there is no actual prediction, export, or engine CLI
+yet. No commit, push, or merge is authorized.

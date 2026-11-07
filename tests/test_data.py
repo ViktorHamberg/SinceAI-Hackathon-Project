@@ -1,5 +1,6 @@
 """Loading adapters use only invented files and mocked Parquet reads."""
 
+import importlib.util
 from pathlib import Path
 import tempfile
 import unittest
@@ -102,6 +103,35 @@ class DataLoadingTests(unittest.TestCase):
         self.assertTrue(empty.empty)
         self.assertEqual(str(empty.value.dtype), "float64")
         self.assertEqual(str(empty.timestamp_utc.dtype), "datetime64[ns, UTC]")
+
+    def test_blank_dataset_ids_are_nullable_without_changing_nonblank_metadata(self):
+        frame = long_rows(*[
+            (f"metadata_case_{i}", "2026-06-01T00:00:00Z", "2026-06-01T01:00:00Z", 1.)
+            for i in range(6)
+        ])
+        frame["dataset_id"] = ["", None, " \t ", "319", "17.1.g:SE1", pd.NA]
+        before = frame.copy(deep=True)
+        result = normalize_long(frame)
+        self.assertEqual(str(result.dataset_id.dtype), "string")
+        self.assertEqual(result.dataset_id.isna().tolist(), [True, True, True, False, False, True])
+        self.assertEqual(result.dataset_id.iloc[3:5].tolist(), ["319", "17.1.g:SE1"])
+        assert_frame_equal(frame, before)
+
+    def test_csv_and_parquet_normalize_blank_dataset_ids_identically(self):
+        with tempfile.TemporaryDirectory() as directory:
+            csv_path = Path(directory) / "inputs.csv"
+            parquet_path = Path(directory) / "inputs.parquet"
+            self.rows.to_csv(csv_path, index=False)
+            csv_rows = load_input_data(csv_path)
+            if importlib.util.find_spec("pyarrow") is not None:
+                self.rows.to_parquet(parquet_path, index=False, engine="pyarrow")
+                parquet_rows = load_input_data(parquet_path)
+            else:
+                # Exercise the same normalizer with the blank text retained by Parquet.
+                with patch("pandas.read_parquet", return_value=self.rows):
+                    parquet_rows = load_input_data(parquet_path)
+        assert_frame_equal(csv_rows, parquet_rows)
+        self.assertTrue(pd.isna(csv_rows.dataset_id.iloc[1]))
 
 
 if __name__ == "__main__":
