@@ -1,0 +1,9 @@
+# Step 1B: tested HTTP runtime and test client; use the existing engine environment.
+# Preserve the challenge's root requirements.txt and editable engine installation.
+fastapi==0.162.2
+uvicorn==0.54.0
+# Starlette 1.10 uses httpx2 for TestClient; plain httpx is deprecated there.
+httpx2==2.16.0
+# Pin the tested serialization/middleware pair resolved for FastAPI.
+pydantic==2.14.3
+starlette==1.10.0
