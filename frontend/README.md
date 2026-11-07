@@ -1,13 +1,13 @@
 # Forecast frontend
 
-Step 2A connects React/TypeScript/Vite to the existing local FastAPI service. It shows
+Steps 2A and 2B connect React/TypeScript/Vite to the existing local FastAPI service. They show
 one genuine historical forecast: all 40 quarter-hours, P10/P50/P90 in EUR/MWh,
 Helsinki timestamps with explicit offsets, and model/run identity. The accessible
-table remains useful when Step 2B adds a chart. Origin selection and probability
+table accompanies a median line and P10-to-P90 chart. Origin selection and probability
 displays are later steps. The current model remains the persistence baseline.
 
-Styling lives in `src/index.css`, `src/App.css` and
-`src/components/ForecastTable.css`. There is no Tailwind dependency or inline styling.
+Application styling lives in `src/index.css`, `src/App.css` and the component CSS
+files. No Tailwind dependency is used. Recharts manages its own SVG/HTML geometry.
 The white/charcoal/orange palette is inspired by the user's Turku Energia reference;
 this is a challenge demonstration, not an official Turku Energia product.
 
@@ -20,7 +20,10 @@ The package also declares compatible Node ranges, but those other versions have 
 been tested here. macOS execution remains to be verified by the teammate.
 
 Keep two terminals open. First, start the backend **from the repository root**, using
-the existing Python environment and the setup in [backend/README.md](../backend/README.md).
+the shared Python 3.12 environment configured according to
+[docs/python-environment.md](../docs/python-environment.md). That guide supersedes
+older separate pip-install instructions. The backend behavior is documented in
+[backend/README.md](../backend/README.md).
 
 Windows PowerShell:
 
@@ -57,6 +60,9 @@ npm run dev
 ```
 
 Open **http://127.0.0.1:5173/**. Keep both processes running. Stop each with Ctrl+C.
+If you prefer to stay at the repository root, use `npm.cmd --prefix frontend run dev`
+on Windows or `npm --prefix frontend run dev` on macOS. Install the new chart
+dependencies with `npm ci` after pulling this step's changed package lockfile.
 On Windows, `npm.cmd` avoids PowerShell's restriction on the separate `npm.ps1` script;
 there is no need to change the computer's execution policy. Use `npm ci` after pulling
 a changed lockfile; do not regenerate the lockfile separately on each operating system.
@@ -82,13 +88,43 @@ proxy destination, not forecast origin or model parameters. Do not put secrets i
 The fixed origin is `2026-09-06T21:00:00Z`, displayed as 7 September at 00:00 UTC+3.
 The last delivery starts at 09:45 Helsinki time; the window ends at 10:00.
 Compare table values with http://127.0.0.1:8000/api/forecast or the backend's `/docs`.
-Prices retain the API's numerical precision. Negative prices are valid. Dates always
-use `Europe/Helsinki`; hovering a timestamp shows its UTC equivalent. UTC instants
-remain the row identifiers, including during the repeated autumn hour.
+Prices retain the API's numerical precision. Negative prices are valid. Dates default
+to `Europe/Helsinki`; the visible Helsinki/UTC buttons change all presented times.
+UTC instants remain the identifiers, including during the repeated autumn hour.
+
+### Price chart
+
+The solid charcoal line is P50; the shaded area between dashed brown boundaries is
+P10 to P90. This is a nominal 80% interval, not measured coverage. Both the range and
+median use steps: one forecast applies to its complete 15-minute delivery period.
+Quarter 40 continues to the ten-hour endpoint. A final range rectangle and median
+segment draw that duration without adding or forecasting a 41st quarter.
+
+Hover, click or tap a delivery interval to inspect it. The selected-delivery strip
+below the plot shows its start/end time, UTC equivalent when viewing Helsinki time,
+and exact P10/P50/P90. Quarter 1 is selected initially. The vertical guide and median
+dot identify the selection. The detail strip replaces floating tooltips so values
+remain readable on narrow screens without covering the plot.
+
+Tab to the chart. Left/Right move one quarter; Home/End select the first/last.
+Selection stays bounded to 40 quarters, and Tab continues through the inspection
+controls to the table. Mouse, touch
+and keyboard share the same selection state. Taps select; swipes remain available for
+page scrolling. Chart inspection and timezone switching do not request new forecasts.
+Previous/Next buttons let touch users refine a selection one quarter at a time;
+they become unavailable at the first/last quarter. They are also keyboard accessible.
+The chart has no entrance or continuous animation. Price-axis labels can use compact
+notation; the detail strip and table retain full values.
+
+The plotting code loads separately from the main application. A loading message is
+shown while it loads. If that chunk fails, the table and metadata remain usable; the
+chart fallback tells the user to reload the browser page. This does not retry model
+training. The existing API request errors still clear both forecast views.
 
 - Scroll the table to reach quarter 40. At narrow widths, horizontal scrolling exposes
   every column; the table region is keyboard focusable and supports native scrolling.
-- Tab through the skip link, Reload button, table region and Model and run details.
+- Tab through the skip link, Reload button, Helsinki/UTC controls, chart, Previous/Next, table region
+  and Model and run details. Press Enter on the skip link to reach the main workspace.
   Open the details to see recipe/predictor, run ID, fitting cutoff and preparation time.
 - Stop the backend and click **Reload forecast**. The table clears and a fixed error
   appears. Restart the backend, wait for readiness, then click **Retry connection**.
@@ -123,6 +159,10 @@ local API proxy. This is a local build check, not a production deployment setup.
 | `src/api/forecast.ts` | Public response types, v1 validation and safe HTTP errors |
 | `src/time.ts` | Explicit Helsinki/UTC formatting and ten-hour end time |
 | `src/components/ForecastTable.tsx`, `.css` | Accessible 40-quarter price table |
+| `src/components/ForecastChart.tsx`, `.css` | Price/uncertainty plot, selection and exact-value readout |
+| `src/forecastChart.ts` | UTC chart data, full-period geometry and axis formatting |
+| `src/components/ChartBoundary.tsx` | Keeps the table available if the chart fails |
+| `DESIGN.md` | Design direction and reasons for chart/interaction choices |
 | `src/index.css` | Shared colors, fonts and focus styles |
 | `src/**/*.test.*`, `src/test/` | Behavior checks, cleanup and synthetic fixtures |
 
@@ -138,7 +178,11 @@ assets, tests or screenshots. Inspect staged content before every commit.
 
 ## Dependencies and licences
 
-Direct runtime dependencies React and React DOM are MIT licensed. Direct development
+Direct runtime dependencies React, React DOM, React Is and Recharts are MIT licensed.
+Recharts 3.10.1 and React Is 19.3.1 are pinned for this step. The implementation uses
+the documented [range-area support](https://recharts.github.io/en-US/api/Area/)
+with application-owned selection and the existing semantic table for accessibility.
+Direct development
 dependencies Vite, its React plugin, TypeScript, Vitest, jsdom, Testing Library packages
 and `@types/*` are MIT licensed except TypeScript, which is Apache-2.0. Exact direct
 versions are in `package.json`; resolved transitive versions and integrity hashes are

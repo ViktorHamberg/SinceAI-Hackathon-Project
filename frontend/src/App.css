@@ -42,6 +42,7 @@ dd { margin: 0; line-height: 1.5; overflow-wrap: anywhere; }
 .run-details dl { display: grid; grid-template-columns: 1fr; gap: 1.2rem; margin: 0 0 1.2rem; }
 .run-details-content p { max-width: 80ch; font-size: .8125rem; line-height: 1.6; color: var(--muted); margin: 0; }
 .app-footer { max-width: 1440px; margin: auto; padding: 1.3rem 1.25rem 2rem; display: flex; flex-direction: column; gap: .5rem; color: var(--muted); font-size: .75rem; line-height: 1.6; }
+.chart-loading { min-height: 540px; margin-top: 1rem; padding: 1.5rem; border: 1px solid var(--line); background: var(--paper); color: var(--muted); font-size: .875rem; line-height: 1.6; }
 
 @media (min-width: 620px) {
   .workspace-name { display: inline; }

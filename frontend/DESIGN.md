@@ -31,3 +31,23 @@ working layout. ENERGY 1 / RHYTHM 2 / MOTION 1.
   image is created for this redesign. The company name is plain text with challenge context.
 
 Verification and remaining limits belong in the roadmap and independent-review handoff.
+
+## Step 2B chart decisions
+
+- The chart answers how the median and uncertainty vary across the ten-hour delivery
+  window. Its placement above exact values makes the overview the first data view.
+- The charcoal median and warm shaded interval follow the supplied company direction.
+  Solid versus dashed boundaries and explicit labels distinguish the series without hue.
+- Step-after geometry represents the actual quarter-hour periods, with the final
+  interval drawn to its delivery end. There is no smoothing or extra forecast row.
+- The selected-delivery strip replaces floating tooltips so small screens can show
+  complete dates, offsets and exact prices without covering the data being inspected.
+- React owns one selection index for mouse, tap and keyboard. Recharts supplies plotting
+  and resize behavior; its built-in interaction layer is disabled to avoid competing
+  selection states. Shared plot dimensions keep hit-testing aligned with the axes.
+- Hover updates only this chart component, only when the quarter changes. There is no
+  inspection animation, no per-pointer update to the App/table and no extra HTTP call.
+- Vertical touch swipes continue page scrolling. A tap selects the touched period;
+  Left/Right/Home/End give the same choice through one keyboard tab stop.
+- The plotting library is a separate lazy-loaded chunk. The table remains available
+  during loading or chart failure. No data is copied into the build or fallback UI.
