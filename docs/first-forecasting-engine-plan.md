@@ -1,7 +1,8 @@
 # First forecasting engine: consolidated implementation plan
 
-**Status: plan approved; Steps 1–5 implemented and verified. Step 6 awaits separate
-explicit approval.**
+**Status: Steps 1–6 executed and verified. Step 6 has an author PASS recommendation
+and awaits independent review. The initial engine milestone is complete pending
+that review; no competing-model work, commit, push or merge is authorized.**
 
 This plan combines the resolved Wayfinder map and the four resolved decision-ticket
 Answers supplied on 7 November 2026 with our dataset and baseline analysis. The final
@@ -577,6 +578,54 @@ baseline-quality fallback submission. Acceptance means verified behaviour and ev
 it does not mean improved accuracy or competition points. Report whether numerical
 baseline equivalence was actually achieved.
 
+### Step 6 result and acceptance handoff
+
+Executed on 7 November 2026 with Python 3.12.14 / pandas 2.2.3 / NumPy 2.3.5,
+using the existing editable installation and supplied CSV data. Engine revision/base
+and HEAD: `b168ad2ddc225cbe8fd5229458baea99036ccb3d`, branch `dev_viktor`.
+No engine defect required correction: production code, tests, dependencies and all
+original starter files remain unchanged. Only this plan and
+`docs/forecasting-engine.md` are modified for Step 6; generated artifacts and private
+reference/comparison helpers are under ignored `baseline_output/engine/acceptance-01/`.
+
+- Full existing suite: **74 passed**, no failures or skips, with FutureWarnings
+  treated as errors. This covers the approved leakage, contract, fitting-state,
+  serialization, import-isolation and CLI/API checks.
+- Full chronological validation ran twice in separate directories, each with 672
+  origins and **26,880 rows**. The unchanged validator reported **0 errors and
+  0 warnings**. The unchanged scorer scored **26,700 rows** for every metric and
+  skipped 180 unlabelled tail rows, retained in both forecasts.
+- Validation metrics: MAE **66.20330374531835**; mean pinball
+  **24.1776182752809**; mean spike Brier **0.1131762465808895**; direction Brier
+  **0.4509074368240898**. Interval coverage **68.28838951310862%**.
+- Independent reference execution used unchanged notebook source cells in a separate
+  process with organiser mode disabled. All eight required forecast fields, all
+  metrics, scored-row counts and official horizon summaries matched exactly.
+  Maximum forecast and metric differences were **0**. Optional CSV metadata differs
+  intentionally; no safety-related numerical deviation arose on these inputs.
+- Repeated validation produced byte-identical CSVs, equal numerical scores, fitting
+  configuration, provenance, environment and input hashes. A full-data two-origin
+  API smoke also confirmed API/CLI and single/batch agreement, unchanged fitted
+  statistics/provenance and no refitting.
+- Test fit separately at `RunConfig.test()`'s cutoff and produced **673 origins ×
+  40 = 26,920 rows**, officially validated with **0 errors and 0 warnings**. No
+  test actuals were read, scored, hashed or used for fitting/model selection.
+  Artifact: `baseline_output/engine/acceptance-01/test/forecast_backtest.csv`.
+  SHA-256: `c1794383fad4ae0561802d8b4e07bebb5131ce20253e80fb2360ab80b2c117ff`.
+
+See `docs/forecasting-engine.md` for exact commands, full metrics, horizon summaries,
+input/notebook fingerprints, source/licence notes and availability/provenance evidence.
+The machine-readable local `acceptance_report.json` records 23 passing checks;
+`api_smoke_report.json` and `integrity_report.json` record additional API and final
+integrity checks. Each workflow retains its manifest and official tool reports.
+
+**Author recommendation: PASS for first-engine acceptance, pending independent
+review.** Baseline equivalence is demonstrated; improved accuracy is not. The measured
+68.29% coverage is below nominal 80% and remains a model-quality limitation. Windows,
+fresh provisioning and real Parquet execution remain unverified. Test accuracy is
+unknown. These limits do not block the agreed CSV first-engine acceptance criteria.
+No new model, dependency or implementation milestone was started.
+
 ## Follow-up milestone: first competing model
 
 After engine acceptance, separately review the proposed supplied-data histogram GBDT
@@ -593,6 +642,7 @@ changed files and actual test results, then stop. Each subsequent step requires
 explicit user approval before work begins. If a step reveals a material scope change,
 explain it before proceeding. Do not commit, push or merge unless explicitly requested.
 
-Steps 1–5 are complete. Stop here until the user explicitly approves Step 6. The shared
-engine, optional export and reproducible CLI workflow exist; full-data acceptance has
-not been performed. No commit, push, or merge is authorized.
+Steps 1–6 have been executed; full-data acceptance has an author PASS recommendation.
+The shared engine, optional export, reproducible CLI workflow and validated baseline
+fallback submission exist. Stop here for independent review and the user's decision.
+No competing-model work, commit, push or merge is authorized.
