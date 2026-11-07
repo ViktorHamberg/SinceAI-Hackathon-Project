@@ -61,6 +61,8 @@ def normalize_long(frame: "pd.DataFrame") -> "pd.DataFrame":
     result = frame.loc[:, list(LONG_COLUMNS)].copy()
     for name in ("series_id", "source", "dataset_id", "unit"):
         result[name] = result[name].astype("string")
+    # CSV decodes empty metadata as missing; Parquet can preserve empty strings.
+    result["dataset_id"] = result["dataset_id"].mask(result["dataset_id"].str.strip().eq(""), pd.NA)
     for name in ("series_id", "source"):
         if result[name].isna().any() or result[name].str.strip().eq("").any():
             raise ValueError(f"{name} must be nonmissing and nonempty")
