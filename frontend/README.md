@@ -1,10 +1,10 @@
 # Forecast frontend
 
-Steps 2A and 2B connect React/TypeScript/Vite to the existing local FastAPI service. They show
-one genuine historical forecast: all 40 quarter-hours, P10/P50/P90 in EUR/MWh,
+Steps 2A, 2B and 3B connect React/TypeScript/Vite to the local FastAPI service. Choose
+one of six cached historical forecasts: all 40 quarter-hours, P10/P50/P90 in EUR/MWh,
 Helsinki timestamps with explicit offsets, and model/run identity. The accessible
-table accompanies a median line and P10-to-P90 chart. Origin selection and probability
-displays are later steps. The current model remains the persistence baseline.
+table accompanies a median line and P10-to-P90 chart. Probability displays remain a
+later step. The current model remains the persistence baseline.
 
 Application styling lives in `src/index.css`, `src/App.css` and the component CSS
 files. No Tailwind dependency is used. Recharts manages its own SVG/HTML geometry.
@@ -68,7 +68,7 @@ there is no need to change the computer's execution policy. Use `npm ci` after p
 a changed lockfile; do not regenerate the lockfile separately on each operating system.
 The dev server fails if port 5173 is occupied rather than silently changing the URL.
 
-The browser calls relative `/api/forecast`; Vite proxies `/api` to
+The browser calls relative `/api/origins` and `/api/forecast?origin=...`; Vite proxies `/api` to
 `http://127.0.0.1:8000`. No backend CORS changes are needed. For a deliberately different
 backend port, set the **server-side** `FORECAST_API_PORT` before starting Vite:
 
@@ -85,8 +85,8 @@ proxy destination, not forecast origin or model parameters. Do not put secrets i
 
 ## Check behavior
 
-The fixed origin is `2026-09-06T21:00:00Z`, displayed as 7 September at 00:00 UTC+3.
-The last delivery starts at 09:45 Helsinki time; the window ends at 10:00.
+The default origin is `2026-09-06T21:00:00Z`, displayed as 7 September at 00:00 UTC+3.
+For this default, the last delivery starts at 09:45 Helsinki time; the window ends at 10:00.
 Compare table values with http://127.0.0.1:8000/api/forecast or the backend's `/docs`.
 Prices retain the API's numerical precision. Negative prices are valid. Dates default
 to `Europe/Helsinki`; the visible Helsinki/UTC buttons change all presented times.
@@ -123,14 +123,15 @@ training. The existing API request errors still clear both forecast views.
 
 - Scroll the table to reach quarter 40. At narrow widths, horizontal scrolling exposes
   every column; the table region is keyboard focusable and supports native scrolling.
-- Tab through the skip link, Reload button, Helsinki/UTC controls, chart, Previous/Next, table region
+- Tab through the skip link, Reload button, Helsinki/UTC controls, forecast navigation,
+  timeline and exact-time list, chart, Previous/Next quarter controls, table region
   and Model and run details. Press Enter on the skip link to reach the main workspace.
   Open the details to see recipe/predictor, run ID, fitting cutoff and preparation time.
 - Stop the backend and click **Reload forecast**. The table clears and a fixed error
   appears. Restart the backend, wait for readiness, then click **Retry connection**.
   No previous forecast is shown as a fresh result while a request is pending or fails.
-- Use browser Network tools to confirm `/api/forecast` is the only application data
-  endpoint. No source CSVs, actual outcomes or restricted spot fields should appear.
+- Use browser Network tools to confirm only `/api/origins` and `/api/forecast?origin=...`
+  supply application data. No source CSVs, actual outcomes or restricted spot fields should appear.
   React development mode may cancel an initial request and issue another; neither
   causes extra model fitting. Stalled requests abort after 15 seconds.
 
@@ -160,6 +161,7 @@ local API proxy. This is a local build check, not a production deployment setup.
 | `src/time.ts` | Explicit Helsinki/UTC formatting and ten-hour end time |
 | `src/components/ForecastTable.tsx`, `.css` | Accessible 40-quarter price table |
 | `src/components/ForecastChart.tsx`, `.css` | Price/uncertainty plot, selection and exact-value readout |
+| `src/components/OriginSelector.tsx`, `.css` | Date-scaled replay timeline, local drag preview, keyboard/buttons and exact-time selection |
 | `src/forecastChart.ts` | UTC chart data, full-period geometry and axis formatting |
 | `src/components/ChartBoundary.tsx` | Keeps the table available if the chart fails |
 | `DESIGN.md` | Design direction and reasons for chart/interaction choices |
@@ -189,3 +191,74 @@ versions are in `package.json`; resolved transitive versions and integrity hashe
 in `package-lock.json`. No external fonts, image service or analytics is used.
 Challenge source licences and restrictions remain in
 [the root README](../README.md#9-sources-and-licences).
+
+## Historical replay controls (Step 3B)
+
+The issue-time panel selects when a forecast was issued. Its Previous/Next **forecast**
+buttons are distinct from the chart's Previous/Next **quarter** inspection controls.
+Only dates returned by the backend catalog are available; the initial selection uses
+the catalog default. See [the backend guide](../backend/README.md) for the six dates.
+
+The timeline uses a native range input. Marks are spaced by elapsed UTC time across
+the full available span, rather than being placed at equal distances. The nearby first
+origins therefore cluster; use the exact-time list or navigation buttons to select
+them precisely. Empty gaps contain no cached forecast. The handle snaps to the nearest
+available origin, with an exact tie choosing the earlier one.
+
+While holding/dragging, the panel shows **Preview · release to load**. The chart/table
+continue displaying the committed forecast and their issue time remains explicitly
+labeled. Previewing creates no HTTP requests. Release commits one choice and retrieves
+its cached forecast. Pointer cancellation or Escape abandons the preview. The range
+reserves vertical touch gestures for page scrolling; physical touch/browser feel
+still needs manual verification on the target device.
+
+Tab to the timeline and use Left/Right or Up/Down to select the previous/next available
+origin, regardless of gap length. Home/End choose first/last; PageUp/PageDown also
+move one available origin. These explicit keyboard choices load immediately. The
+exact-time list is native and all controls have accessible names and visible focus.
+With only one configured origin, the timeline/navigation buttons are disabled.
+
+On a committed change, the chart, table and metadata clear while loading, then update
+together. Quarter inspection and table scroll reset for the new forecast; the display
+timezone stays selected. Rapid selection aborts the previous request and ignores late
+successes/failures even if cancellation is disregarded by the transport. The selector
+remains available during forecast loading so users can choose another origin.
+
+Both the catalog and forecast responses are validated against exact allowlisted
+structures. A selected forecast must match its requested origin and every shared run/
+model metadata field. If the backend restarts between requests, the mismatched result
+is rejected. **Retry connection** refreshes the catalog and then fetches the requested
+origin if it remains available; otherwise it selects the new default. Reload does the
+same refresh deliberately. It does not train a model. Dragging, timezone changes and
+delivery-quarter inspection do not refetch the catalog.
+
+Manual checks after starting backend on 8000 and frontend on 5173:
+
+1. Choose a different exact issue time. Chart/table/context change together; compare
+   its values with `/api/forecast?origin=...`. Confirm quarter 1 is selected.
+2. Drag toward a later marker without releasing. The preview changes while the old
+   displayed forecast remains labeled; Network shows no new request. Release: one
+   selected-origin request occurs. Same-origin release makes no additional request.
+3. Try cancellation/Escape, arrows, Home/End, Previous/Next forecast and the exact-time
+   list. End controls are disabled. Switch UTC/Helsinki without changing the origin.
+4. Select rapidly between dates; the final selected forecast must win. Stop backend,
+   select another origin and verify a safe error with no old chart/table. Restart,
+   wait for readiness and Retry to refresh the catalog and recover.
+5. Check 320px, intermediate widths, desktop, 200% zoom, keyboard focus/Tab exit,
+   touch scrolling, browser Console and Network. No document horizontal overflow.
+
+Relevant automated checks from root:
+
+```powershell
+npm.cmd --prefix frontend run test -- --run src/api/forecast.test.ts src/components/OriginSelector.test.tsx src/App.test.tsx
+npm.cmd --prefix frontend run build
+```
+
+Verification on Windows: 29 API tests and 17 App/selector tests passed across focused
+runs; TypeScript/production build passed. Real production-preview HTTP integration
+used the actual frontend API module to validate the six-origin catalog and all 240
+forecast rows (1,920 numerical values equal to the direct backend). Built assets served
+successfully. Browser automation was unavailable, so these do not establish real
+native-drag rendering/feel, touch, screen-reader behavior or responsive/zoom results.
+macOS and unrelated backend/engine/chart/table suites were not rerun for this step.
+No dependencies, backend, engine contract or forecasting accuracy changed.

@@ -3,9 +3,9 @@
 **Status: Steps 1A and 1B passed independent review and were published by the user.
 Step 2 is now split into 2A (API connection and table) and 2B (chart).
 Steps 2A and 2B were approved and published by the user. Step 3 is split into 3A
-(backend selection/cache) and 3B (browser selector). The user authorized 3A on
-7 November 2026; its implementation and verification limits are recorded below.
-Step 3B and later work require separate approval. The user confirmed on
+(backend selection/cache) and 3B (browser selector). Step 3A was reviewed, approved
+and published; the user authorized 3B on 7 November 2026. Its results and verification
+limits are recorded below. Step 4 and later work require separate approval. The user confirmed on
 7 November 2026 that engine Step 6
 passed independent review and was published to GitHub. Older engine documents still
 describe that review as pending; this plan records the update without editing them.**
@@ -521,7 +521,7 @@ authorized by this result.
 ## Step 3. Select historical forecast origins
 
 Implement this step in two separately reviewed halves, as agreed with the user.
-Step 3A is authorized; Step 3B requires explicit approval after the backend handoff.
+The user approved Step 3A and then separately authorized Step 3B after the backend handoff.
 
 ### Step 3A. Backend origin selection and caching
 
@@ -602,7 +602,7 @@ and engine suites were not rerun because their code is unchanged; backend compat
 and real HTTP passed. No accuracy improvement is claimed. **Engine change proposals:
 None.** Stop for independent review and explicit Step 3B approval. No Git write.
 
-### Step 3B. Browser origin selector and integration (not yet authorized)
+### Step 3B. Browser origin selector and integration
 
 Add a keyboard-accessible `OriginSelector.tsx` and CSS, using 3A's catalog. Selecting
 an origin retrieves its cached forecast and updates chart, table and metadata. Reuse
@@ -617,6 +617,53 @@ cached results only. The backend contract is already established by 3A.
 
 After 3B, users can move between real historical forecasts in the browser. Stop for
 independent review and explicit Step 4 approval.
+
+### Step 3B implementation and verification
+
+Added `OriginSelector.tsx`, its CSS and focused tests. The user-approved replay design
+uses a native draggable range with markers at actual UTC date positions, snapping to
+available origins. This preserves the real gaps between six unevenly spaced times.
+The nearby initial origins cluster; native exact-time selection and Previous/Next
+forecast controls provide precision. Keyboard arrows/Home/End/PageUp/PageDown select
+available dates. Dragging previews locally with an explicit preview label and current
+displayed issue time; release commits one request, and cancellation leaves the view.
+No decorative animations, new assets, dependencies or inline CSS were added.
+
+Extended the existing frontend API boundary with exact catalog validation and selected
+forecast retrieval. Shared metadata and origin must match, so responses from a changed
+backend generation are rejected until catalog refresh. App fetches the catalog, then
+the selected snapshot. Loading/failure clear the old view; switching aborts/ignores
+obsolete responses. Chart/table/context update together; quarter inspection/table scroll
+reset for a new origin. Timezone and selector focus remain separate from that reset.
+Reload/retry refresh the catalog and retain the requested origin when still available,
+otherwise use its default. The selector stays usable during forecast loading.
+
+Updated `App.tsx`, API/App tests, synthetic fixture helpers, frontend README and DESIGN.
+Backend, engine, HTTP contract, dependency declarations/locks and original files remain
+unchanged. Focused Windows checks: **29 API tests passed**, then **17 App/selector tests
+passed** after the relevant corrections; TypeScript/production build and diff whitespace
+checks passed. Tests cover real time spacing/nearest snapping, no request before drag
+release, cancellation, bounded keyboard/button/list navigation, single-origin mode,
+DST labels, precise snapshots, stale success/error races, reset behavior, catalog
+privacy/validation and changed-run retry. Synthetic events/layout are not real-browser
+interaction proof. Unrelated suites were not rerun.
+
+A real backend on port 8001 and production preview on 4174 passed HTTP integration
+using the actual frontend parsers/retrieval functions. All six origins and **240 rows /
+1,920 numerical values** matched the direct API, including shared run identity. Only
+one catalog request and six selected-origin requests were made by that smoke. Built
+assets returned 200 and no restricted spot field appeared. Both temporary servers
+were stopped. Engine revision for this pulled checkout:
+`sha256:7c2e0800711a71378cfb83fe50371c773f313fbcc987722bdce380d0d644e0a4`.
+Model remains persistence-v1. Private evidence/handoff are under ignored
+`baseline_output/application/step-3b-01/`.
+
+Browser inventory again returned `The browser access host is unavailable`. Native
+range drag feel/rendering, release outside the control, physical touch, screen readers,
+responsive/zoom/scrolling and browser Console/Network checks remain manual verification.
+The Anti Slop browser click-through gate has no overall PASS. macOS was not tested.
+No accuracy improvement is claimed. **Engine change proposals: None.** Stop for
+independent review and explicit Step 4 approval. No Git writes are authorized.
 
 ## Step 4. Add direction, exceptional-price probabilities and risk summaries
 
@@ -789,5 +836,5 @@ Use [the independent review workflow](REVIEW.md); obtain approval for the affect
 candidate before any separately authorized push. An approved roadmap or review verdict
 does not authorize implementation of the next step, committing, pushing or merging.
 
-The roadmap was initially a planning-only change. Steps 1A, 1B, 2A, 2B and 3A's separately
+The roadmap was initially a planning-only change. Steps 1A, 1B, 2A, 2B, 3A and 3B's separately
 authorized implementation and actual verification are recorded above; later steps remain gated.

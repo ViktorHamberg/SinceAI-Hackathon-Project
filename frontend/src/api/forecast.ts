@@ -27,6 +27,11 @@ export interface ForecastResponse {
   points: ForecastPoint[];
 }
 
+export interface OriginsResponse extends Omit<ForecastResponse, 'forecast_origin_utc' | 'points'> {
+  default_origin_utc: string;
+  origins: string[];
+}
+
 type FailureKind = 'network' | 'http' | 'invalid' | 'timeout';
 const messages: Record<FailureKind, string> = {
   network: 'Could not connect to the forecast service. Check that the backend is running, then retry.',
@@ -48,10 +53,11 @@ export function requestErrorMessage(error: unknown): string {
   return error instanceof ForecastRequestError ? messages[error.kind] : messages.network;
 }
 
-const envelopeKeys = [
+const identityKeys = [
   'schema_version', 'run_id', 'model_id', 'predictor_id', 'engine_revision',
-  'generated_at_utc', 'forecast_origin_utc', 'fit_cutoff_utc', 'points',
+  'generated_at_utc', 'fit_cutoff_utc',
 ];
+const envelopeKeys = [...identityKeys, 'forecast_origin_utc', 'points'];
 const pointKeys = [
   'forecast_origin_utc', 'delivery_start_utc', 'step', 'p10', 'p50', 'p90',
   'p_up', 'p_down', 'p_none', 'p_spike_high', 'p_spike_low', 'data_cutoff_utc', 'top_drivers',
@@ -82,15 +88,20 @@ function finite(value: unknown): value is number {
   return typeof value === 'number' && Number.isFinite(value);
 }
 
-/** Fail closed on malformed v1 responses; no repairs, partial horizons or raw diagnostics. */
-export function parseForecast(value: unknown): ForecastResponse {
-  const envelope = objectWithKeys(value, envelopeKeys);
+function validateIdentity(envelope: Record<string, unknown>): void {
   requireValid(envelope.schema_version === '1.0');
   requireValid(typeof envelope.run_id === 'string' && uuid.test(envelope.run_id));
   requireValid(typeof envelope.model_id === 'string' && identifier.test(envelope.model_id));
   requireValid(typeof envelope.predictor_id === 'string' && identifier.test(envelope.predictor_id));
   requireValid(typeof envelope.engine_revision === 'string' && /^sha256:[0-9a-f]{64}$/.test(envelope.engine_revision));
   timestamp(envelope.generated_at_utc);
+  requireValid(timestamp(envelope.fit_cutoff_utc) % 3_600_000 === 0);
+}
+
+/** Fail closed on malformed v1 responses; no repairs, partial horizons or raw diagnostics. */
+export function parseForecast(value: unknown): ForecastResponse {
+  const envelope = objectWithKeys(value, envelopeKeys);
+  validateIdentity(envelope);
   const origin = timestamp(envelope.forecast_origin_utc);
   requireValid(origin % 3_600_000 === 0 && timestamp(envelope.fit_cutoff_utc) <= origin);
   requireValid(Array.isArray(envelope.points) && envelope.points.length === 40);
@@ -112,7 +123,37 @@ export function parseForecast(value: unknown): ForecastResponse {
   return envelope as unknown as ForecastResponse;
 }
 
+export function parseOrigins(value: unknown): OriginsResponse {
+  const catalog = objectWithKeys(value, [...identityKeys, 'default_origin_utc', 'origins']);
+  validateIdentity(catalog);
+  requireValid(Array.isArray(catalog.origins) && catalog.origins.length >= 1 && catalog.origins.length <= 6);
+  let previous = -Infinity;
+  for (const origin of catalog.origins) {
+    const time = timestamp(origin);
+    requireValid(time % 3_600_000 === 0 && time >= timestamp(catalog.fit_cutoff_utc) && time > previous);
+    previous = time;
+  }
+  requireValid(catalog.default_origin_utc === catalog.origins[0]);
+  return catalog as unknown as OriginsResponse;
+}
+
 export async function fetchForecast(signal?: AbortSignal): Promise<ForecastResponse> {
+  return fetchValidated('/api/forecast', parseForecast, signal);
+}
+
+export async function fetchOrigins(signal?: AbortSignal): Promise<OriginsResponse> {
+  return fetchValidated('/api/origins', parseOrigins, signal);
+}
+
+export async function fetchSelectedForecast(catalog: OriginsResponse, origin: string, signal?: AbortSignal): Promise<ForecastResponse> {
+  requireValid(catalog.origins.includes(origin));
+  const forecast = await fetchValidated(`/api/forecast?${new URLSearchParams({ origin })}`, parseForecast, signal);
+  requireValid(forecast.forecast_origin_utc === origin);
+  requireValid(identityKeys.every((key) => forecast[key as keyof ForecastResponse] === catalog[key as keyof OriginsResponse]));
+  return forecast;
+}
+
+async function fetchValidated<T>(path: string, parse: (value: unknown) => T, signal?: AbortSignal): Promise<T> {
   const controller = new AbortController();
   const cancel = () => controller.abort();
   signal?.addEventListener('abort', cancel, { once: true });
@@ -120,14 +161,14 @@ export async function fetchForecast(signal?: AbortSignal): Promise<ForecastRespo
   let timedOut = false;
   const timer = setTimeout(() => { timedOut = true; controller.abort(); }, 15_000);
   try {
-    const response = await fetch('/api/forecast', {
+    const response = await fetch(path, {
       signal: controller.signal, cache: 'no-store', headers: { Accept: 'application/json' },
     });
     if (!response.ok) throw new ForecastRequestError('http');
     let value: unknown;
     try { value = await response.json(); }
     catch { throw new ForecastRequestError('invalid'); }
-    return parseForecast(value);
+    return parse(value);
   } catch (error) {
     if (signal?.aborted) throw error;
     if (timedOut) throw new ForecastRequestError('timeout');
