@@ -65,6 +65,7 @@ it('ignores obsolete history even when the transport disregards abort, and rejec
   changedRun.run_id = '00000000-0000-4000-8000-000000000099';
   await act(async () => pending[1].resolve(jsonResponse(changedRun)));
   expect(await screen.findByRole('alert')).toHaveTextContent('did not match this forecast');
+  await user.click(screen.getByText('View all 40 forecast quarters'));
   expect(screen.getByRole('table')).toBeVisible();
   expect(screen.getByRole('list', { name: 'Chart legend' })).not.toHaveTextContent('Observed price');
 });
@@ -80,6 +81,7 @@ it('retains actual-outcome controls, metrics and exact quarter inspection if plo
   await user.click(screen.getByRole('button', { name: 'Show actual outcomes' }));
   const review = await screen.findByRole('region', { name: 'Retrospective comparison' });
   await within(review).findByText('3 of 40 quarters');
+  await user.click(screen.getByText('View all 40 forecast quarters'));
   expect(screen.getByRole('table')).toBeVisible();
   await user.selectOptions(screen.getByRole('combobox', { name: 'Inspect delivery quarter' }), '2');
   expect(within(review).getByText('200 EUR/MWh')).toBeVisible();

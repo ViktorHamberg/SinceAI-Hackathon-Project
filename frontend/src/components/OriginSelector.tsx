@@ -65,9 +65,17 @@ export default function OriginSelector({ origins, selectedOrigin, displayedOrigi
         <button type="button" disabled={selected === origins.length - 1} onClick={() => choose(selected + 1)}>Next forecast</button>
       </div>
     </div>
-    <div className="origin-readout" aria-live="polite" aria-atomic="true">
-      <span>{dragging ? 'Preview · release to load' : 'Selected issue time'}</span>
-      <output htmlFor="origin-timeline">{formatTimestamp(origins[shown], zone)}</output>
+    <div className="origin-controls">
+      <div className="origin-precise">
+        <label htmlFor="origin-choice">Choose exact issue time</label>
+        <select id="origin-choice" value={selectedOrigin} onChange={(event) => choose(origins.indexOf(event.target.value))}>
+          {origins.map((origin) => <option key={origin} value={origin}>{formatTimestamp(origin, zone)}</option>)}
+        </select>
+      </div>
+      <div className="origin-readout" aria-live="polite" aria-atomic="true">
+        <span>{dragging ? 'Preview · release to load' : 'Selected issue time'}</span>
+        <output htmlFor="origin-timeline">{formatTimestamp(origins[shown], zone)}</output>
+      </div>
     </div>
     <div className="origin-rail">
       <svg className="origin-track" viewBox="0 0 1000 48" preserveAspectRatio="none" aria-hidden="true">
@@ -105,12 +113,6 @@ export default function OriginSelector({ origins, selectedOrigin, displayedOrigi
         }} />
     </div>
     <div className="origin-endpoints" aria-hidden="true"><span>{formatTimestamp(origins[0], zone)}</span>{origins.length > 1 && <span>{formatTimestamp(origins[origins.length - 1], zone)}</span>}</div>
-    <div className="origin-precise">
-      <label htmlFor="origin-choice">Choose exact issue time</label>
-      <select id="origin-choice" value={selectedOrigin} onChange={(event) => choose(origins.indexOf(event.target.value))}>
-        {origins.map((origin) => <option key={origin} value={origin}>{formatTimestamp(origin, zone)}</option>)}
-      </select>
-    </div>
     <p className="origin-help" id="origin-help">Drag to preview; release to load. Marks show available forecasts at their actual times; gaps have no cached forecasts. Use arrow keys or the exact-time list for nearby marks.</p>
     <p className="origin-displayed">{displayedOrigin ? <>Displayed forecast: <time dateTime={displayedOrigin}>{formatTimestamp(displayedOrigin, zone)}</time></> : loading ? 'No forecast displayed while loading.' : 'No forecast displayed.'}</p>
   </section>;

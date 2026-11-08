@@ -10,6 +10,33 @@ function installForecastTransport(mock: (url: string, options: RequestInit) => P
     ? Promise.resolve(jsonResponse(originsFixture())) : mock(url, options));
 }
 
+it('puts the price outlook before risks and preserves the optional table across forecast changes', async () => {
+  const catalog = originsFixture();
+  const transport = vi.fn((url: string) => Promise.resolve(jsonResponse(url === '/api/origins' ? catalog
+    : selectedFixture(new URL(url, 'http://127.0.0.1').searchParams.get('origin')!))));
+  vi.stubGlobal('fetch', transport);
+  render(<App />);
+  const user = userEvent.setup();
+  const price = await screen.findByRole('heading', { name: '10-hour price outlook' }, { timeout: 5000 });
+  const risk = screen.getByRole('heading', { name: 'Forecast risk summary' });
+  const probabilities = await screen.findByRole('heading', { name: 'Direction and exceptional-price probabilities' }, { timeout: 5000 });
+  expect(price.compareDocumentPosition(risk) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  expect(risk.compareDocumentPosition(probabilities) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  const disclosure = screen.getByText('View all 40 forecast quarters');
+  expect(disclosure.closest('details')).not.toHaveAttribute('open');
+  const before = transport.mock.calls.length;
+  await user.click(disclosure);
+  expect(screen.getByRole('table')).toBeVisible();
+  expect(screen.getAllByRole('row')).toHaveLength(41);
+  expect(transport.mock.calls).toHaveLength(before);
+  await user.selectOptions(screen.getByRole('combobox', { name: 'Choose exact issue time' }), catalog.origins[1]);
+  await waitFor(() => expect(within(screen.getByRole('region', { name: 'Forecast context' })).getByText('07 Sept 2026, 01:00 UTC+3')).toBeVisible());
+  expect(screen.getByRole('table')).toBeVisible();
+  await user.click(screen.getByText('View all 40 forecast quarters'));
+  expect(screen.getByRole('table')).not.toBeVisible();
+  expect(transport.mock.calls).toHaveLength(before + 1);
+}, 15_000);
+
 it('loads the real endpoint contract and displays origin, horizon and run identity', async () => {
   let resolve!: (response: Response) => void;
   installForecastTransport(vi.fn(() => new Promise<Response>((done) => { resolve = done; })));
@@ -17,7 +44,9 @@ it('loads the real endpoint contract and displays origin, horizon and run identi
   expect(screen.getByRole('status')).toHaveTextContent('Loading forecast');
   await waitFor(() => expect(resolve).toBeDefined());
   await act(async () => resolve(jsonResponse()));
-  expect(await screen.findByRole('table')).toBeVisible();
+  expect(await screen.findByRole('table')).not.toBeVisible();
+  await userEvent.click(screen.getByText('View all 40 forecast quarters'));
+  expect(screen.getByRole('table')).toBeVisible();
   expect(screen.getAllByRole('row')).toHaveLength(41);
   expect(screen.getByText('07 Sept 2026, 10:00 UTC+3')).toBeVisible();
   expect(screen.getByText(/Persistence baseline/)).toBeVisible();
@@ -34,6 +63,7 @@ it('shows a safe error and recovers when the user retries', async () => {
   expect(screen.queryByText(/PRIVATE/)).not.toBeInTheDocument();
   expect(screen.queryByRole('table')).not.toBeInTheDocument();
   await userEvent.click(screen.getByRole('button', { name: 'Retry connection' }));
+  await userEvent.click(await screen.findByText('View all 40 forecast quarters'));
   expect(await screen.findByRole('table')).toBeVisible();
   expect(mock).toHaveBeenCalledTimes(2);
 });
@@ -79,6 +109,7 @@ it('switches all displayed times by keyboard without another request or changed 
   const user = userEvent.setup();
   render(<App />);
   await screen.findByRole('table');
+  fireEvent.click(screen.getByText('View all 40 forecast quarters'));
   await user.tab();
   expect(screen.getByRole('link', { name: 'Skip to forecast' })).toHaveFocus();
   await user.tab();
@@ -203,6 +234,7 @@ it('keeps the displayed forecast while dragging and requests only the released o
   vi.stubGlobal('fetch', transport);
   render(<App />);
   await screen.findByRole('table');
+  fireEvent.click(screen.getByText('View all 40 forecast quarters'));
   const slider = screen.getByRole('slider');
   const before = transport.mock.calls.length;
   fireEvent(slider, Object.assign(new MouseEvent('pointerdown', { bubbles: true, button: 0 }), { isPrimary: true, pointerId: 8 }));
