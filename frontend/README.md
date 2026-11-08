@@ -1,5 +1,11 @@
 # Forecast frontend
 
+The Step 6A layout puts the price outlook ahead of risk summaries and probabilities.
+Forecast selection and timezone controls remain shared. Open **View all 40 forecast
+quarters** below the plots for the exact table; it starts collapsed and preserves your
+expanded preference when changing issue time. Model/run details remain expandable.
+Task-based tabs are planned separately. No forecast calculations changed in this pass.
+
 Steps 2A, 2B, 3B, 4 and 5B connect React/TypeScript/Vite to the local FastAPI service. Choose
 one of six cached historical forecasts: all 40 quarter-hours, P10/P50/P90 in EUR/MWh,
 Helsinki timestamps with explicit offsets, and model/run identity. The accessible

@@ -8,8 +8,9 @@ and published; the user authorized 3B on 7 November 2026. Its results and verifi
 limits are recorded below. The user separately authorized Step 4 as one implementation
 step on 8 November 2026. Step 5 is now split into 5A (history API) and 5B (comparison
 UI); the user authorized 5A and then 5B on 8 November. Step 5A passed independent review;
-Step 5B's implementation and verification limits are recorded below. Step 6 requires
-separate approval. The user confirmed on
+Step 5B's implementation and verification limits are recorded below. The user authorized
+a focused Step 6A UI hierarchy increment; remaining Step 6 work requires separate approval.
+The user confirmed on
 7 November 2026 that engine Step 6
 passed independent review and was published to GitHub. Older engine documents still
 describe that review as pending; this plan records the update without editing them.**
@@ -928,6 +929,35 @@ and original challenge files are unchanged. No accuracy improvement claimed.
 Step 6 or Git writes.
 
 ## Step 6. Improve usability, evidence and the local demonstration
+
+### Step 6A. Price-first layout and optional exact table (8 November 2026)
+
+Authorized as a small frontend-only increment. Move the price outlook before the risk
+summary, then keep risk summary and probability plots together. Compact header, origin
+and context spacing; retain readable type, 44px controls, visible timeline and true UTC
+gaps. Put the exact-time list beside the preview readout at wide widths and above it
+at narrow widths. Keep all origin/quarter/timezone/history interactions and data unchanged.
+
+The full 40-quarter table is closed initially under View all 40 forecast quarters.
+Its open preference survives origin changes; the underlying table still resets its
+scroll on new forecasts. Chart fallback/loading text explains how to open exact prices.
+Model/run details remain expandable. No backend, engine, calculation, dependency or
+model configuration changes. Tabs separating Forecast and Historical review remain
+planned for a later separately authorized increment, as requested by the user.
+
+Verification uses focused synthetic frontend checks and a production build only.
+No browser reconnection attempts or real-data model preparation are part of this
+increment, following the user's instruction to keep implementation/verification focused.
+Across focused runs, 21 relevant tests passed: existing App/history interactions,
+five origin-selector cases, and one new reading-order/table-disclosure regression.
+Production build passed; tests were adapted to explicitly open the now-collapsed table.
+The new layout check also verifies expansion survives an issue-time change and opening
+or closing it makes no data request. Native keyboard disclosure behavior and visual
+layout remain browser checks; the test exercises disclosure clicks.
+Manual browser appearance and real-service integration remain to be checked by the
+user before independent review. This does not complete all of Step 6.
+
+### Remaining Step 6 scope
 
 **Objective and implementation:** Refine the complete workflow for an energy expert:
 readable responsive layout, keyboard-accessible selection, clear legends/units,

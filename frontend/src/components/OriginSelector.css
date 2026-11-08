@@ -1,12 +1,13 @@
-.origin-selector { border: 1px solid var(--line); background: var(--paper); padding: 1.1rem; margin-bottom: 1rem; min-width: 0; }
+.origin-selector { border: 1px solid var(--line); background: var(--paper); padding: .8rem 1rem; margin-bottom: .75rem; min-width: 0; }
 .origin-heading { display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 1rem; }
-.origin-heading h2 { font-size: 1.125rem; letter-spacing: -.02em; margin-bottom: .35rem; }
+.origin-heading h2 { font-size: 1rem; letter-spacing: -.02em; margin-bottom: .25rem; }
 .origin-heading p { margin: 0; color: var(--muted); font-size: .8125rem; }
 .origin-navigation { display: flex; flex-wrap: wrap; gap: .5rem; width: 100%; }
 .origin-navigation button { flex: 1; }
-.origin-readout { display: flex; flex-direction: column; gap: .35rem; margin-top: 1.3rem; }
+.origin-controls { display: flex; flex-direction: column; gap: .75rem; margin-top: .75rem; }
+.origin-readout { display: flex; flex-direction: column; gap: .25rem; min-width: 0; }
 .origin-readout span { color: var(--muted); font-size: .75rem; }
-.origin-readout output { font-size: 1.05rem; font-weight: 650; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.origin-readout output { font-size: .9375rem; font-weight: 650; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
 .origin-rail { position: relative; margin-top: .6rem; }
 .origin-track { position: absolute; left: 12px; width: calc(100% - 24px); height: 48px; pointer-events: none; }
 .origin-track line { vector-effect: non-scaling-stroke; }
@@ -24,17 +25,18 @@
 .origin-endpoints { display: flex; justify-content: space-between; gap: 1.25rem; font-size: .6875rem; color: var(--muted); line-height: 1.5; }
 .origin-endpoints span { max-width: 48%; }
 .origin-endpoints span:last-child { text-align: right; }
-.origin-precise { display: flex; flex-direction: column; align-items: flex-start; gap: .5rem; margin-top: 1rem; }
+.origin-precise { display: flex; flex-direction: column; align-items: flex-start; gap: .35rem; min-width: 0; }
 .origin-precise label { font-size: .8125rem; }
 .origin-precise select { max-width: 100%; width: 100%; min-width: 0; min-height: 44px; padding: .6rem .65rem; background: var(--paper); color: var(--ink); border: 1px solid var(--control-line); border-radius: 2px; font: inherit; font-size: .875rem; }
-.origin-help, .origin-displayed { color: var(--muted); font-size: .75rem; line-height: 1.6; margin: 1rem 0 0; }
+.origin-help, .origin-displayed { color: var(--muted); font-size: .75rem; line-height: 1.6; margin: .5rem 0 0; }
 .origin-displayed { margin-top: .4rem; }
 .origin-displayed time { color: var(--ink); }
 @media (min-width: 620px) {
-  .origin-selector { padding: 1.2rem; }
   .origin-navigation { width: auto; }
   .origin-navigation button { flex: 0 0 auto; }
-  .origin-readout output { font-size: 1.25rem; }
-  .origin-precise { flex-direction: row; align-items: center; gap: 1rem; }
-  .origin-precise select { width: auto; }
+}
+@media (min-width: 780px) {
+  .origin-controls { flex-direction: row; align-items: flex-end; gap: 1.5rem; }
+  .origin-precise { flex: 1; max-width: 390px; }
+  .origin-readout { flex: 1; padding-bottom: .35rem; }
 }

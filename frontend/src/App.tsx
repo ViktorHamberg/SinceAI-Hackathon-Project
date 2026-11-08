@@ -22,6 +22,7 @@ export default function App() {
   const [catalogState, setCatalogState] = useState<CatalogState>({ status: 'loading' });
   const [selectedOrigin, setSelectedOrigin] = useState<string | null>(null);
   const [comparisonEnabled, setComparisonEnabled] = useState(false);
+  const [tableExpanded, setTableExpanded] = useState(false);
   useEffect(() => {
     let active = true;
     const controller = new AbortController();
@@ -131,7 +132,10 @@ export default function App() {
 
           <ForecastAnalysis key={`analysis/${state.forecast.run_id}/${state.forecast.forecast_origin_utc}`} forecast={state.forecast} zone={zone}
             comparisonEnabled={comparisonEnabled} onComparisonEnabled={setComparisonEnabled} />
-          <ForecastTable key={`table/${state.forecast.run_id}/${state.forecast.forecast_origin_utc}`} points={state.forecast.points} zone={zone} />
+          <details className="forecast-details" open={tableExpanded} onToggle={(event) => setTableExpanded(event.currentTarget.open)}>
+            <summary>View all 40 forecast quarters</summary>
+            <ForecastTable key={`table/${state.forecast.run_id}/${state.forecast.forecast_origin_utc}`} points={state.forecast.points} zone={zone} />
+          </details>
 
           <details className="run-details">
             <summary>Model and run details</summary>

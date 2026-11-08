@@ -9,7 +9,7 @@ working layout. ENERGY 1 / RHYTHM 2 / MOTION 1.
 
 - Color: orange connects to the supplied company reference; charcoal carries readable
   controls and text. A quiet warm neutral separates the workspace from white data surfaces.
-- Layout: forecast origin and delivery end sit directly above the table because those
+- Layout: forecast origin and delivery end sit directly above the price chart because those
   times determine what the expert is reviewing. Technical identity stays in details.
 - Typography: native system sans fonts keep dense numbers readable on Windows/macOS
   without a font download. Tabular figures align prices; monospace is reserved for IDs.
@@ -31,6 +31,16 @@ working layout. ENERGY 1 / RHYTHM 2 / MOTION 1.
   image is created for this redesign. The company name is plain text with challenge context.
 
 Verification and remaining limits belong in the roadmap and independent-review handoff.
+
+## Step 6A hierarchy
+
+Bring the price outlook before risk summaries and probability plots so the main forecast
+is the first analysis view. Compact header/control spacing while retaining font sizes,
+44px targets, visible timeline gaps and every selection method. The exact-time list sits
+beside the preview readout on wide screens and above it on narrow screens. Keep the full
+price table in a native disclosure, closed initially, with its expanded preference
+retained across issue-time changes. Chart fallbacks point to that disclosure. A later
+increment will address task-based tabs; this change introduces no tab/navigation state.
 
 ## Step 2B chart decisions
 
