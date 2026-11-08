@@ -1,7 +1,9 @@
-import { useCallback, useMemo, useRef, useState } from 'react';
+import { useCallback, useMemo } from 'react';
+import type { ReactNode } from 'react';
 import { Area, CartesianGrid, ComposedChart, Line, ReferenceArea, ReferenceDot, ReferenceLine, ResponsiveContainer, XAxis, YAxis } from 'recharts';
-import type { ForecastPoint } from '../api/forecast';
-import { buildChartData, CHART_MARGIN, formatChartTick, PRICE_AXIS_WIDTH, quarterAtPosition, QUARTER_MS, TIME_AXIS_HEIGHT } from '../forecastChart';
+import type { ForecastPoint, HistoryResponse } from '../api/forecast';
+import { buildChartData, CHART_MARGIN, formatChartTick, PRICE_AXIS_WIDTH, QUARTER_MS, TIME_AXIS_HEIGHT } from '../forecastChart';
+import { useQuarterInspection } from '../useQuarterInspection';
 import { formatTimestamp } from '../time';
 import type { DisplayZone } from '../time';
 import './ForecastChart.css';
@@ -30,49 +32,32 @@ function QuarterDetails({ point, zone, onStep }: { point: ForecastPoint; zone: D
   </div>;
 }
 
-export default function ForecastChart({ points, zone }: { points: ForecastPoint[]; zone: DisplayZone }) {
-  const { data, start, end, ticks, priceDomain, priceTicks } = useMemo(() => buildChartData(points), [points]);
+export default function ForecastChart({ points, zone, selectedIndex, onSelect, history, comparisonControl }: {
+  points: ForecastPoint[]; zone: DisplayZone; selectedIndex: number; onSelect: (index: number) => void;
+  history?: HistoryResponse; comparisonControl?: ReactNode;
+}) {
+  const { data, start, end, ticks, priceDomain, priceTicks } = useMemo(() => buildChartData(points, history?.points), [points, history]);
   const last = data[data.length - 1];
-  const [selectedIndex, setSelectedIndex] = useState(0);
   const selected = data[selectedIndex];
-  const touchStart = useRef<{ x: number; y: number } | null>(null);
+  const inspection = useQuarterInspection(points.length, selectedIndex, onSelect);
   const timeTick = useCallback((value: number) => formatChartTick(value, zone), [zone]);
 
-  function inspectAt(clientX: number, clientY: number, target: HTMLDivElement) {
-    const box = target.getBoundingClientRect();
-    const index = quarterAtPosition(clientX - box.left, clientY - box.top, Math.round(box.width), Math.round(box.height), points.length);
-    if (index !== null) setSelectedIndex(index);
-  }
   return <section className="forecast-chart" aria-labelledby="chart-heading">
     <div className="chart-heading">
       <div><h2 id="chart-heading">10-hour price outlook</h2><p>Imbalance price · EUR/MWh</p></div>
+      {comparisonControl}
       <ul className="chart-legend" aria-label="Chart legend">
         <li><span className="legend-median" aria-hidden="true" />P50 median</li>
         <li><span className="legend-range" aria-hidden="true" />P10 to P90 interval</li>
+        {history && <li><span className="legend-observed" aria-hidden="true" />Observed price · retrospective</li>}
       </ul>
     </div>
     <p className="chart-help" id="chart-help">Hover or tap a delivery for exact values below. Keyboard: Tab to the chart, then use Left and Right arrows. Home and End select the first and last quarter.</p>
     <div className="chart-canvas" role="application" tabIndex={0} aria-label="Ten-hour imbalance price forecast" aria-describedby="chart-help"
-      onMouseMove={(event) => inspectAt(event.clientX, event.clientY, event.currentTarget)}
-      onClick={(event) => inspectAt(event.clientX, event.clientY, event.currentTarget)}
-      onTouchStart={(event) => { const touch = event.touches[0]; touchStart.current = touch ? { x: touch.clientX, y: touch.clientY } : null; }}
-      onTouchCancel={() => { touchStart.current = null; }}
-      onTouchEnd={(event) => {
-        const touch = event.changedTouches[0];
-        const start = touchStart.current;
-        touchStart.current = null;
-        if (touch && start && Math.hypot(touch.clientX - start.x, touch.clientY - start.y) <= 8) inspectAt(touch.clientX, touch.clientY, event.currentTarget);
-      }}
-      onKeyDown={(event) => {
-        if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
-        event.preventDefault();
-        if (event.key === 'Home') setSelectedIndex(0);
-        else if (event.key === 'End') setSelectedIndex(points.length - 1);
-        else setSelectedIndex((index) => Math.max(0, Math.min(points.length - 1, index + (event.key === 'ArrowRight' ? 1 : -1))));
-      }}>
+      {...inspection}>
       <ResponsiveContainer width="100%" height="100%" debounce={50}>
         <ComposedChart data={data} margin={CHART_MARGIN}
-          accessibilityLayer={false} tabIndex={-1} role="img" aria-label="Median price and P10 to P90 interval">
+          accessibilityLayer={false} tabIndex={-1} role="img" aria-label={history ? 'Median price, P10 to P90 interval and retrospective observed price' : 'Median price and P10 to P90 interval'}>
           <CartesianGrid vertical={false} stroke="var(--line)" />
           <XAxis dataKey="timestamp" type="number" scale="time" domain={[start, end]} ticks={ticks}
             tickFormatter={timeTick} minTickGap={24} height={TIME_AXIS_HEIGHT} tickLine={false} axisLine={false} />
@@ -88,13 +73,23 @@ export default function ForecastChart({ points, zone }: { points: ForecastPoint[
             dot={false} activeDot={false} isAnimationActive={false} />
           <ReferenceLine className="final-quarter-median" segment={[{ x: last.timestamp, y: last.p50 }, { x: end, y: last.p50 }]}
             stroke="var(--ink)" strokeWidth={2.5} />
+          {history && <Line className="observed-price" dataKey="actual" type="stepAfter" name="Observed price · retrospective"
+            stroke="var(--observed-price)" strokeWidth={2.5} strokeDasharray="8 3 2 3" connectNulls={false}
+            dot={false} activeDot={false} isAnimationActive={false} />}
+          {history && data.filter((row, index) => row.actual !== null && (index === data.length - 1 || data[index + 1].actual === null)).map((row) =>
+            <ReferenceLine key={row.timestamp} className="observed-quarter-end"
+              segment={[{ x: row.timestamp, y: row.actual! }, { x: row.timestamp + QUARTER_MS, y: row.actual! }]}
+              stroke="var(--observed-price)" strokeWidth={2.5} strokeDasharray="8 3 2 3" />)}
           <ReferenceLine x={selected.timestamp} stroke="var(--ink)" strokeDasharray="3 3" />
           <ReferenceDot x={selected.timestamp} y={selected.p50} r={4} fill="var(--ink)" stroke="var(--paper)" strokeWidth={2} />
+          {history && selected.actual !== null && <ReferenceDot x={selected.timestamp} y={selected.actual} r={4}
+            fill="var(--paper)" stroke="var(--observed-price)" strokeWidth={2} />}
         </ComposedChart>
       </ResponsiveContainer>
     </div>
-    <QuarterDetails point={selected.point} zone={zone} onStep={(delta) => setSelectedIndex((index) => Math.max(0, Math.min(points.length - 1, index + delta)))} />
+    <QuarterDetails point={selected.point} zone={zone} onStep={(delta) => onSelect(Math.max(0, Math.min(points.length - 1, selectedIndex + delta)))} />
     <div className="chart-caption"><p>Delivery start · {zone === 'UTC' ? 'UTC' : 'Europe/Helsinki'} · Offsets shown on the time axis</p>
-      <p>Each step covers 15 minutes. The shaded interval is nominally 80%; observed coverage can differ.</p></div>
+      <p>Each step covers 15 minutes. The shaded interval is nominally 80%; observed coverage can differ.</p>
+      {history && <p>Observed prices are retrospective. Missing outcomes leave gaps; the price axis includes matched actual prices.</p>}</div>
   </section>;
 }

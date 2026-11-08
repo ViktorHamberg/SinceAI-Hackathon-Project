@@ -1,14 +1,12 @@
-import { lazy, Suspense, useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { fetchOrigins, fetchSelectedForecast, requestErrorMessage } from './api/forecast';
 import type { ForecastResponse, OriginsResponse } from './api/forecast';
 import ForecastTable from './components/ForecastTable';
-import ChartBoundary from './components/ChartBoundary';
+import ForecastAnalysis from './components/ForecastAnalysis';
 import OriginSelector from './components/OriginSelector';
 import { deliveryWindowEnd, formatTimestamp } from './time';
 import type { DisplayZone } from './time';
 import './App.css';
-
-const ForecastChart = lazy(() => import('./components/ForecastChart'));
 
 type LoadState = { status: 'loading' } | { status: 'error'; message: string } | { status: 'ready'; forecast: ForecastResponse };
 type CatalogState = { status: 'loading' } | { status: 'error' } | { status: 'ready'; catalog: OriginsResponse };
@@ -23,6 +21,7 @@ export default function App() {
   const [state, setState] = useState<LoadState>({ status: 'loading' });
   const [catalogState, setCatalogState] = useState<CatalogState>({ status: 'loading' });
   const [selectedOrigin, setSelectedOrigin] = useState<string | null>(null);
+  const [comparisonEnabled, setComparisonEnabled] = useState(false);
   useEffect(() => {
     let active = true;
     const controller = new AbortController();
@@ -130,11 +129,8 @@ export default function App() {
             </dl>
           </section>
 
-          <ChartBoundary key={`chart/${state.forecast.run_id}/${state.forecast.forecast_origin_utc}`}>
-            <Suspense fallback={<section className="chart-loading" role="status">Loading price chart. The full forecast is available in the table below.</section>}>
-              <ForecastChart points={state.forecast.points} zone={zone} />
-            </Suspense>
-          </ChartBoundary>
+          <ForecastAnalysis key={`analysis/${state.forecast.run_id}/${state.forecast.forecast_origin_utc}`} forecast={state.forecast} zone={zone}
+            comparisonEnabled={comparisonEnabled} onComparisonEnabled={setComparisonEnabled} />
           <ForecastTable key={`table/${state.forecast.run_id}/${state.forecast.forecast_origin_utc}`} points={state.forecast.points} zone={zone} />
 
           <details className="run-details">
@@ -153,7 +149,7 @@ export default function App() {
           </details>
         </>}
       </main>
-      <footer className="app-footer"><span>Historical forecasts. Actual outcomes are not displayed.</span><span>Challenge demonstration · No live market feed</span></footer>
+      <footer className="app-footer"><span>Historical forecasts. Optional actual outcomes are retrospective.</span><span>Challenge demonstration · No live market feed</span></footer>
     </>
   );
 }

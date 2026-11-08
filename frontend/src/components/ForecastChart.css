@@ -1,4 +1,4 @@
-.forecast-chart { --chart-band-fill: #fff0cf; --chart-band-edge: #9b6014; background: var(--paper); border: 1px solid var(--line); padding: 1.2rem .8rem .9rem; margin-top: 1rem; min-width: 0; }
+.forecast-chart { --chart-band-fill: #fff0cf; --chart-band-edge: #9b6014; --observed-price: #82501d; background: var(--paper); border: 1px solid var(--line); padding: 1.2rem .8rem .9rem; margin-top: 1rem; min-width: 0; }
 .chart-heading { display: flex; flex-direction: column; justify-content: space-between; gap: 1rem; padding: 0 .4rem; }
 .chart-heading h2 { font-size: 1.125rem; font-weight: 650; letter-spacing: -.02em; margin-bottom: .4rem; }
 .chart-heading p { font-size: .8125rem; line-height: 1.5; color: var(--muted); margin: 0; }
@@ -6,6 +6,7 @@
 .chart-legend li { display: flex; align-items: center; gap: .5rem; }
 .legend-median { display: inline-block; width: 24px; border-top: 3px solid var(--ink); }
 .legend-range { display: inline-block; width: 24px; height: 14px; border: 1px dashed var(--chart-band-edge); background: var(--chart-band-fill); }
+.legend-observed { display: inline-block; width: 24px; border-top: 3px dashed var(--observed-price); }
 .chart-help { margin: 1rem .4rem .4rem; font-size: .75rem; line-height: 1.6; color: var(--muted); }
 .chart-canvas { height: 310px; width: 100%; min-width: 0; }
 .chart-canvas .recharts-wrapper { cursor: crosshair; touch-action: pan-y; }
@@ -27,7 +28,7 @@
 
 @media (min-width: 620px) {
   .forecast-chart { padding: 1.2rem 1rem 1rem; }
-  .chart-heading { flex-direction: row; align-items: center; }
+  .chart-heading { flex-direction: row; flex-wrap: wrap; align-items: center; }
   .chart-canvas { height: 360px; }
   .chart-selection { grid-template-columns: 1fr auto; align-items: center; gap: .4rem 1.5rem; }
   .selection-unit { grid-column: 2; text-align: right; }

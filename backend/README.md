@@ -1,11 +1,11 @@
 # Backend: historical forecast service and local HTTP API
 
 The application service fits once and batch-prepares six genuine historical forecasts,
-retaining safe JSON responses for selection through the local API. It uses the existing
+retaining safe JSON responses for selection through the local API. It uses the
 spot-relative LightGBM predictor with the provisional `relative-control-v1` recipe.
 Model fitting and batch prediction happen once at startup; requests reuse cached JSON.
-The existing frontend still displays
-the default forecast; the browser origin selector belongs to Step 3B.
+The frontend can select cached origins. Step 5A adds a separate retrospective history
+API; the comparison UI is Step 5B.
 
 ## Files and responsibilities
 
@@ -14,11 +14,13 @@ the default forecast; the browser origin selector belongs to Step 3B.
 | `app/config.py` | Private source paths and a bounded, validated selection of origins. |
 | `app/forecast_service.py` | Load, fit once, predict once, retain the result and serve cached JSON. |
 | `app/schemas.py` | Validate the forecast and serialize only approved response fields. |
+| `app/actuals.py` | Read only permitted validation-outcome columns, join to cached forecasts and compute retrospective metrics. |
 | `app/main.py` | Own FastAPI startup/shutdown, readiness and cached forecast routes. |
 | `requirements.txt` | Pin the tested HTTP runtime, serialization stack and test client. |
 | `tests/test_forecast_service.py` | Synthetic correctness, lifecycle, privacy and portability checks. |
 | `tests/test_forecast_api.py` | HTTP contract, lifecycle, error safety and concurrent retrieval checks. |
 | `tests/test_origin_selection.py` | Multi-origin caching, selection, shared identity, query validation and overlapping deliveries. |
+| `tests/test_history.py` | Outcome privacy, missing data, metrics, lazy/concurrent loading, history caching and safe failure checks. |
 | `tests/smoke_forecast.py` | Explicit real-data acceptance check with value-free output. |
 | `tests/smoke_forecast_api.py` | Start a temporary loopback server and verify real HTTP responses against the engine. |
 
@@ -39,7 +41,9 @@ between machines. Both teammates need their own authorized local challenge data.
 Do not copy datasets through GitHub.
 
 The default data paths are `<checkout>/data/inputs.csv` and
-`<checkout>/data/spot_nordpool.csv`. There is no actuals path or dataset discovery.
+`<checkout>/data/spot_nordpool.csv`. These remain the engine's only file inputs.
+Separate `HistoryConfig` supplies `actuals_validation.csv` for explicit retrospective
+requests; no outcome path or data is passed to ForecastConfig or the forecast engine.
 Use `ForecastConfig.from_data_dir(...)` for an explicit data directory, or
 `ForecastConfig(inputs_path=..., spot_path=...)` for two explicit source files.
 Explicit relative paths resolve at configuration time from the caller's directory;
@@ -301,6 +305,133 @@ Safe report: `baseline_output/application/step-3a-01/http_smoke_report.json`.
 macOS, interactive Swagger rendering and a new browser walkthrough remain unverified;
 real HTTP and OpenAPI passed. No frontend or engine suite rerun was needed for
 unchanged code. Engine change proposals: **None**. Stop for review and Step 3B approval.
+
+## Retrospective validation history (Step 5A)
+
+`GET /api/history?origin=2026-09-06T21:00:00Z` compares one cached forecast with
+outcomes revealed afterward. The UTC origin is **required** and must already appear
+in `/api/origins`. No arbitrary date range, model, training setting or source path can
+be supplied. This route does not train/predict and does not replace official scoring.
+The existing forecast envelope and other route behavior remain unchanged.
+
+The first successful explicit history request loads validation outcomes off the event
+loop, using exactly `delivery_start_utc`, `imbalance_price`, and `direction` through
+`pandas.read_csv(usecols=...)`. No spot column or publication column is materialized.
+No outcome read occurs during import/startup or forecast/health/catalog requests.
+A lock makes concurrent first requests share one load. Data and per-origin history
+JSON stay cached for that lifespan. Restart to refresh a successfully loaded snapshot;
+missing/invalid source failures can be fixed and retried without restarting forecasts.
+
+History uses a distinct `HistoryConfig` and immutable `ActualsStore`. Default file:
+`<checkout>/data/actuals_validation.csv`; explicit ForecastConfig paths default history
+to that inputs directory. With a custom `service_factory`, pass `history_config` when
+the private data directory differs from the checkout default. Trusted local example:
+
+```python
+create_app(ForecastConfig.from_data_dir("private data"),
+           history_config=HistoryConfig.from_data_dir("private outcomes"))
+```
+
+Import both configuration classes from `backend.app.config`. The resolved filename
+must be `actuals_validation.csv`, never test actuals. Source timestamps must be unique
+UTC quarter-hours within `[2026-09-06T21:00:00Z, 2026-10-04T21:00:00Z)`. Offsets
+`Z` and `+00:00` are accepted; no naive/local timestamps are guessed. Empty price or
+direction fields become null independently; nonempty bad values/duplicates/out-of-
+period rows reject the entire load. Negative finite imbalance prices are valid.
+
+Outcomes are matched by delivery timestamp to every one of the forecast's 40 points.
+No missing/tail quarter is dropped or filled. Different issue times can share the
+same observed delivery while having different forecast errors. Outcomes intentionally
+are not filtered as though known at forecast origin: the response explicitly says
+`comparison_mode: "retrospective"`. They cannot feed back into the fitted engine or
+forecast JSON. No spike outcome is calculated from restricted spot prices.
+
+History response fields:
+
+| Field | Meaning |
+|---|---|
+| `schema_version`, `run_id`, `model_id`, `predictor_id`, `engine_revision`, `generated_at_utc`, `forecast_origin_utc`, `fit_cutoff_utc` | Exact identity copied from the selected cached forecast. |
+| `comparison_mode` | Always `retrospective`; these are outcomes revealed afterward. |
+| `actuals_snapshot_id` | UUID for this loaded outcome snapshot, shared across origins; not a content hash. |
+| `actuals_loaded_at_utc` | When the server loaded the snapshot, not historical publication time. |
+| `points` | Forty ordered records: `delivery_start_utc`, `step`, nullable `actual_imbalance_price`, nullable `actual_direction` (`up`/`down`/`none`). |
+| `metrics` | Selected-origin comparison values/counts below; not full validation scores. |
+
+Metrics use available observed **prices**: `mae_p50` is mean absolute P50 error in
+EUR/MWh; `coverage_p10_p90` is the fraction within inclusive `[P10,P90]`; both are
+null if no prices match. `covered_price_count` is the interval numerator, and
+`matched_price_count` its denominator. `total_quarters` is 40;
+`missing_price_count = 40 - matched_price_count`. Independent
+`matched_direction_count`/`missing_direction_count` describe direction availability.
+There is no direction/spike score or official competition-points claim.
+
+Missing/empty/duplicate/unknown query parameters or malformed/non-hourly UTC origins
+return safe 400. Well-formed uncached origins return 404 **before outcome loading**.
+Missing/invalid validation files return safe 503 for history while forecasts/health
+remain available. Unready forecast service also returns 503. Invalid responses or
+unexpected errors return sanitized 500, never raw source rows/paths/values. All
+responses have `Cache-Control: no-store`; no source-file route exists.
+
+### Test 5A without a comparison UI
+
+Restart the backend with the normal single-worker/no-access-log command. Wait for
+startup, then open `/docs`: GET `/api/history` requires the origin text. Or open:
+
+1. `http://127.0.0.1:8000/api/history?origin=2026-09-06T21:00:00Z`
+2. `http://127.0.0.1:8000/api/history?origin=2026-09-06T22:00:00Z`
+
+Both return 40 steps, shared forecast run identity/outcome snapshot, and separately
+labeled actual values. Compare each with `/api/forecast?origin=...`. Refreshing a URL
+keeps identity/values stable while the backend remains running. Check metrics counts
+and compare MAE/coverage with the corresponding forecast points and observed prices.
+
+`/api/history` without origin, `?origin=bad` and unknown/duplicate parameters give 400.
+`?origin=2026-09-06T23:00:00Z` gives 404 because that valid hour is not cached. Test
+nullable/tail cases using synthetic tests; do not edit private challenge files to
+manufacture errors. The current frontend has no actual-outcome toggle/overlay yet.
+
+Focused tests from root (no real data):
+
+```powershell
+.\.venv\Scripts\python.exe -W error::FutureWarning -m unittest backend.tests.test_history backend.tests.test_forecast_api.ForecastApiTests backend.tests.test_origin_selection backend.tests.test_forecast_service.ConfigurationAndImportTests -q
+```
+
+Explicit real-data HTTP acceptance:
+
+```powershell
+.\.venv\Scripts\python.exe -W error::FutureWarning -m backend.tests.smoke_forecast_api --data-dir data --include-history
+```
+
+The existing smoke still reads **no actuals** unless `--include-history` is supplied.
+With the flag it starts/stops its own temporary loopback server, verifies all six
+cached forecasts/history responses and compares outcomes/metrics with an independent
+three-column reference read. It does not stop any already running user server or print
+prices. The source CSV parser scans a file, but only the three approved outcome columns
+are selected into dataframes; no spot field reaches store, comparison or serialization.
+
+### 5A verification actually performed
+
+Windows Python 3.12.16, pandas 2.2.3, NumPy 2.3.5, existing locked HTTP dependencies.
+**31 relevant tests passed across focused runs**, including eight new history cases;
+no unrelated engine/frontend or optional ML suites rerun. Source tests cover strict
+three-column ingestion with an invented restricted sentinel, exact/inclusive metrics,
+missing/tail data, overlap, cache detachment/lifetimes, concurrent load, default route
+isolation, sanitized failures and required-origin OpenAPI behavior.
+
+Real HTTP smoke passed **240 forecast and 240 history rows** across six origins,
+matching every history value/metric against an independent three-column reference.
+Application: one actuals load; verifier: one extra reference read. One fit and one
+batch prediction remained, with unchanged forecast JSON/input hashes. Outcome cache
+and metadata were shared; repeated responses matched. Temporary server shut down.
+Preparation was 36.642s, startup 36.754s in this local run, not a performance guarantee.
+The older cache-size fields in the report cover forecasts only, not history/outcomes.
+
+Safe report: `baseline_output/application/step-5a-01/http_smoke_report.json`.
+Engine revision used:
+`sha256:b933f7932aefa2e4edd030291e259a92178d82afd6858b206b9b45a4cf3c0fae`.
+Model remains persistence-v1. macOS, interactive Swagger rendering and the not-yet-built
+5B comparison UI were not verified. No accuracy improvement claimed. Engine change
+proposals: None. Stop for independent review and explicit Step 5B approval.
 
 ## Verification actually performed
 

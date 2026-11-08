@@ -154,7 +154,7 @@ class ForecastApiTests(unittest.TestCase):
             schema = client.get("/openapi.json")
             self.assertEqual(schema.status_code, 200)
             spec = schema.json()
-            self.assertEqual(set(spec["paths"]), {"/api/forecast", "/api/health", "/api/origins"})
+            self.assertEqual(set(spec["paths"]), {"/api/forecast", "/api/health", "/api/origins", "/api/history"})
             response_schema = spec["paths"]["/api/forecast"]["get"]["responses"]["200"]["content"]["application/json"]["schema"]
             self.assertEqual(response_schema["$ref"], "#/components/schemas/ForecastResponse")
             fields = spec["components"]["schemas"]["ForecastPoint"]["properties"]
