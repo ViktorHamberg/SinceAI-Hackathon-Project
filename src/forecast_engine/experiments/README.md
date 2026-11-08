@@ -466,3 +466,93 @@ The synthetic study exercises every registered recipe, both small folds, partial
 availability, official validation/scoring, pooling boundaries and tamper rejection.
 No application, original CLI, public forecast interface or dependency change is needed.
 Stop after 4A evidence and review; do not consume the reserved 4B slots or start Step 5.
+
+## Bounded refinements and terminal execution (Step 4B)
+
+Step 4A retained `relative-control-v1`: its minimal features had the lowest pooled
+MAE, while neither added feature group passed the fold-consistency guard. Step 4B
+keeps that target and feature set and allocates the final two learned recipe slots:
+
+| Recipe | Single change from the relative control | Hypothesis |
+|---|---|---|
+| `relative-rounds60-v1` | Boosting rounds 30 → 60 | More iterations may reduce underfitting. |
+| `relative-l2-10-v1` | L2 regularization 1 → 10 | More shrinkage may improve fold consistency. |
+
+All other settings, including the seed, native thread count, per-head training
+eligibility, missing-spot direct backup and explanation rules, remain unchanged.
+These are hypotheses, not measured improvements. No new feature, dependency, public
+interface, backend default, calibration, ensemble or regime selector is introduced.
+
+Expensive studies run in the developer's terminal, outside the coding-agent session.
+The agent prepares code and focused synthetic checks, then stops before real-data
+execution. Reviewers inspect code and saved evidence and run focused tests; they must
+obtain explicit user authorization before repeating training studies or benchmarks.
+
+From the repository root, after code is ready, preregister into a fresh ignored folder:
+
+```bash
+.venv/bin/python -m forecast_engine.experiments.compare plan --stage 4b --previous-study baseline_output/engine/step-4a-acceptance-01 --output-dir baseline_output/engine/step-4b-acceptance-01
+```
+
+This reads the saved 4A manifests and artifact fingerprints without training or
+rescoring. The completed 4A report must select the relative control. Data, official
+tools, folds, model/feature/attribution sources and earlier evidence must remain
+compatible. The new plan records its 4A lineage and exact per-recipe settings before
+any new results. Source changes after registration stop the study; do not edit engine
+Python files or pull updates while it is running.
+
+Run the entire registered study and report with one terminal command:
+
+```bash
+.venv/bin/python -W error::FutureWarning -m forecast_engine.experiments.compare execute --output-dir baseline_output/engine/step-4b-acceptance-01
+```
+
+On macOS, optionally prefix that command with `caffeinate -i` to prevent idle sleep
+while plugged in; keep the terminal open. On Windows use `.venv\Scripts\python.exe`
+in place of `.venv/bin/python` and use Windows power settings to prevent sleep.
+No Codex session needs to stay active. Running the Python command does not invoke an
+AI service. Windows execution has not been verified here.
+
+The runner executes eight jobs sequentially: Persistence, the unchanged relative
+control, and the two refinements on each of the original two folds. Fresh controls
+provide comparisons under the current source fingerprint; rejected 4A feature
+variants are not retrained. There are six distinct learned recipes across 4A/4B,
+including discarded recipes; rerunning a control on a fold uses no extra slot.
+Sequential execution bounds resource use and avoids overlapping-worker timings, but
+runtime may still be tens of minutes. No faster-run claim has been measured.
+
+Progress prints only fold/recipe identifiers. Each job writes a private `.log` and
+the usual complete forecast, official validator/scorer outputs and manifest. After
+all jobs pass, the runner creates `comparison/comparison.json` and `comparison.md`
+using the same matched-cohort, official-score and pooled-tail checks as 4A.
+The JSON includes the selected exact configuration, fold/pooled/shared-spot losses,
+coverage, head training counts, feature availability, fallback/horizon diagnostics,
+costs and the linked 4A plan/report. Keep all evidence ignored and private.
+
+Rerunning `execute` resumes only verified complete run directories. An incomplete,
+failed or inconsistent directory stops execution without overwriting or retrying it.
+If interrupted, keep the evidence and ask for help with the failed job; do not delete
+directories or register alternative settings to bypass the recipe budget. A completed
+report is not overwritten. If all jobs completed but report generation did not start,
+`compare report --output-dir ...` can generate the report separately. A partially
+written comparison folder needs inspection before retrying.
+
+Both refinements must pass the existing loss gate versus Persistence and the relative
+control: at least 1% pooled reduction in one loss and no loss worsening by more than
+1% on either fold or pooled rows (absolute tolerance 0.000001). Eligible candidates
+and the retained control are ranked by pooled MAE, pinball, spike Brier, direction
+Brier and recipe ID. If no refinement justifies retention, keep the control; if the
+control no longer passes versus Persistence, the fallback selection is Persistence.
+Coverage and runtime remain diagnostics. The result never changes the application
+model automatically. Additional recipes require separate scope approval.
+
+After the terminal command finishes, return to the coding agent with the study path
+to interpret results and complete 4B acceptance. Do not mark 4B complete before that
+evidence is checked. Step 5 calibration and final official-validation comparison have
+not started, and test-period outcomes are not read.
+
+Focused synthetic checks:
+
+```bash
+.venv/bin/python -W error::FutureWarning -m unittest forecast_engine.tests.test_refinement forecast_engine.tests.test_ablation -v
+```

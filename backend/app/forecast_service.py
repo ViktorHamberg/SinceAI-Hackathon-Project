@@ -4,9 +4,11 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
 import hashlib
+import importlib.metadata
 import json
 from pathlib import Path
 import time
+import sys
 from typing import TYPE_CHECKING
 from types import MappingProxyType
 from uuid import uuid4
@@ -49,6 +51,24 @@ def _engine_revision() -> str:
     return "sha256:" + digest.hexdigest()
 
 
+def _model_identity(config, predictor, run_config, revision, model_id):
+    sources = {}
+    for name, path in (("inputs", config.inputs_path), ("spot", config.spot_path)):
+        digest = hashlib.sha256()
+        with path.open("rb") as source:
+            for chunk in iter(lambda: source.read(1024 * 1024), b""):
+                digest.update(chunk)
+        sources[name] = digest.hexdigest()
+    return {"engine_revision": revision, "model_id": model_id, "sources_sha256": sources,
+            "python": list(sys.version_info[:3]),
+            "libraries": {name: importlib.metadata.version(name) for name in ("numpy", "pandas", "lightgbm")},
+            "fit_config": {name: getattr(run_config, name).isoformat()
+                           for name in ("label_start_utc", "label_end_utc", "fit_cutoff_utc")},
+            "recipe": {"target_mode": predictor.target_mode, "features": list(predictor.feature_names),
+                       "parameters": predictor.recipe.parameters(), "num_boost_round": predictor.recipe.num_boost_round,
+                       "min_training_rows": predictor.min_training_rows}}
+
+
 @dataclass(frozen=True, slots=True, repr=False)
 class ForecastService:
     """A successfully prepared snapshot. Construct via prepare_forecast().
@@ -85,14 +105,15 @@ def prepare_forecast(
 ) -> ForecastService:
     """Load, fit once and batch-generate the configured validation-origin snapshots.
 
-    Step 1B can call this during lifespan and reuse the returned service in routes.
-    Alternative models use the same public engine contract and require an explicit
-    application recipe label. No fallbacks, actuals, disk exports or official tools.
+    Lifespan reuses the returned service in routes. Default preparation uses a
+    private model cache; explicit predictors require an application recipe label.
+    No actuals, forecast exports, automatic fallback or official tools are used.
     """
     started = time.perf_counter()
     stage = "configuration"
     try:
         config = config if config is not None else ForecastConfig.from_data_dir()
+        use_cache = predictor is None and config.model_cache_path is not None
         if predictor is None:
             predictor = LightGBMPredictor(target_mode="spot_relative")
             model_id = model_id or "relative-control-v1"
@@ -101,10 +122,24 @@ def prepare_forecast(
         run_config = RunConfig.validation()
         stage = "engine identity"
         revision = _engine_revision()
+        identity = None
+        cached = None
+        if use_cache:
+            stage = "loading model cache"
+            from forecast_engine.models.artifacts import load_fitted_model
+
+            identity = _model_identity(config, predictor, run_config, revision, model_id)
+            if config.model_cache_path.exists():
+                cached = load_fitted_model(config.model_cache_path, identity=identity)
+                if (cached.provenance.config != run_config or cached._target_mode != predictor.target_mode
+                        or cached._recipe != predictor.recipe or cached._feature_names != predictor.feature_names
+                        or any(head.native_version != identity["libraries"]["lightgbm"]
+                               for head in (*cached._heads, *cached._direct_heads))):
+                    raise ValueError("Cached model does not match the requested predictor.")
         stage = "loading inputs"
         data = load_inputs(config.inputs_path, spot_path=config.spot_path)
         stage = "fitting"
-        fitted = predictor.fit(data, config=run_config)
+        fitted = cached if cached is not None else predictor.fit(data, config=run_config)
         stage = "prediction"
         result = forecast(fitted, data, origins=config.origins)
         stage = "response serialization"
@@ -130,6 +165,15 @@ def prepare_forecast(
         stage = "engine integrity"
         if _engine_revision() != revision:
             raise ValueError("Engine sources changed during preparation.")
+        if use_cache:
+            stage = "model cache integrity"
+            if _model_identity(config, predictor, run_config, revision, model_id) != identity:
+                raise ValueError("Input sources changed during preparation.")
+            if cached is None:
+                stage = "saving model cache"
+                from forecast_engine.models.artifacts import save_fitted_model
+
+                save_fitted_model(config.model_cache_path, fitted, identity=identity)
         return ForecastService(fitted, result, MappingProxyType(payloads), catalog.to_json(),
                                config.origins[0], time.perf_counter() - started)
     except Exception:

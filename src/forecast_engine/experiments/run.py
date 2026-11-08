@@ -365,8 +365,8 @@ def main(argv=None):
     parser.add_argument("--period", choices=("validation", "fold-1", "fold-2"), default="validation")
     selection = parser.add_mutually_exclusive_group()
     selection.add_argument("--model", choices=("persistence", "lightgbm-direct", "lightgbm-relative"))
-    from .recipes import RECIPES
-    selection.add_argument("--recipe", choices=tuple(RECIPES))
+    from .recipes import ALL_RECIPES
+    selection.add_argument("--recipe", choices=tuple(ALL_RECIPES))
     parser.add_argument("--measure-attribution", action="store_true")
     parser.add_argument("--starter-dir", type=Path, default=Path("."))
     parser.add_argument("--data-dir", type=Path, default=Path("data"))
@@ -375,7 +375,7 @@ def main(argv=None):
     fold = None if options.period == "validation" else expanding_window_folds()[int(options.period[-1]) - 1]
     try:
         if options.recipe:
-            predictor, recipe_id = RECIPES[options.recipe].predictor(), options.recipe
+            predictor, recipe_id = ALL_RECIPES[options.recipe].predictor(), options.recipe
         else:
             predictor, recipe_id = _select_model(options.model or "persistence")
         manifest = run_experiment(starter_dir=options.starter_dir, data_dir=options.data_dir,

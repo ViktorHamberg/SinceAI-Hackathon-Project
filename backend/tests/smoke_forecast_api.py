@@ -68,6 +68,7 @@ def main(argv=None) -> int:
         from forecast_engine.models.lightgbm import FittedLightGBM, LightGBMPredictor
 
         config = ForecastConfig.from_data_dir(args.data_dir)
+        expected_fit_calls = 0 if config.model_cache_path is not None and config.model_cache_path.exists() else 1
         history_config = HistoryConfig.from_data_dir(args.data_dir) if args.include_history else None
         source_paths = [config.inputs_path, config.spot_path]
         before = [hashlib.sha256(path.read_bytes()).hexdigest() for path in source_paths]
@@ -158,7 +159,7 @@ def main(argv=None) -> int:
             _require('"spot_price":' not in raw and "dependencies" not in raw)
             for _ in range(3):
                 _require(json.loads(get("/api/forecast")) == payload)
-            _require(fit_calls.call_count == predict_calls.call_count == 1)
+            _require(fit_calls.call_count == expected_fit_calls and predict_calls.call_count == 1)
             _require(reads == source_paths)
             _require("swagger-ui" in get("/docs"))
             schema = json.loads(get("/openapi.json"))
@@ -213,7 +214,7 @@ def main(argv=None) -> int:
                     })
                 _require(len({history["actuals_snapshot_id"] for history, _ in snapshots}) == 1)
                 _require(service.response_json() == default_before)
-                _require(fit_calls.call_count == predict_calls.call_count == 1)
+                _require(fit_calls.call_count == expected_fit_calls and predict_calls.call_count == 1)
                 history_report = {
                     "history_origins": len(snapshots), "history_rows": len(snapshots) * 40,
                     "history_values_and_metrics_match": True, "history_uses_three_columns_only": True,
@@ -224,7 +225,7 @@ def main(argv=None) -> int:
         _require(before == [hashlib.sha256(path.read_bytes()).hexdigest() for path in source_paths])
         report = {
             "status": "pass", "transport": "HTTP over ephemeral 127.0.0.1 port",
-            "forecast_rows": len(frame), "fit_calls": 1, "predict_calls": 1,
+            "forecast_rows": len(frame), "fit_calls": fit_calls.call_count, "predict_calls": predict_calls.call_count,
             "forecast_origins": len(config.origins), "cached_json_bytes": service.cached_json_bytes,
             "forecast_table_bytes": int(frame.memory_usage(index=True, deep=True).sum()),
             "memory_scope": "Serialized cache and forecast table only; excludes fitted state and provenance.",
