@@ -1,6 +1,19 @@
 import { expect, it } from 'vitest';
 import { buildChartData, formatChartTick, quarterAtPosition, QUARTER_MS } from './forecastChart';
-import { fixture } from './test/fixture';
+import { fixture, historyFixture } from './test/fixture';
+
+it('includes actual extremes without clipping, filling gaps or changing any forecast value', () => {
+  const forecast = fixture();
+  const original = structuredClone(forecast);
+  const history = historyFixture(forecast, [-500, null, 2000]);
+  const chart = buildChartData(forecast.points, history.points);
+  expect(chart.data).toHaveLength(40);
+  expect(chart.data.slice(0, 4).map((row) => row.actual)).toEqual([-500, null, 2000, null]);
+  expect(chart.priceDomain[0]).toBeLessThan(-500);
+  expect(chart.priceDomain[1]).toBeGreaterThan(2000);
+  expect(forecast).toEqual(original);
+  expect(chart.end - chart.start).toBe(40 * QUARTER_MS);
+});
 
 it('uses evenly spaced round price ticks while keeping the entire interval visible', () => {
   const points = fixture().points.map((point) => ({ ...point, p10: -61, p50: .48, p90: 66 }));

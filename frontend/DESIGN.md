@@ -91,3 +91,19 @@ instruction to add multiple interval bands, observed outcomes, a buy meter or a 
 - Flat signals and tied maxima are stated explicitly, including the current persistence
   baseline. Summary labels are per-quarter and descriptive; no horizon-event probability,
   causal story or arbitrary alert threshold is inferred.
+
+## Step 5B retrospective comparison decisions
+
+- Keep the existing palette, typography and motion settings. The pressed Show actual
+  outcomes button beside the price heading makes revealing later information deliberate.
+- Observed prices use a darker brown dash-dot line, an explicit retrospective legend
+  and an outlined inspection marker, distinguishing them from the solid median and
+  pale uncertainty band without relying on color alone. No new visual assets are needed.
+- The compact comparison strip below the price chart groups window metrics and exact
+  selected-quarter outcomes. It remains usable if plotting fails. Probability panels
+  retain their forecast-only meaning; no outcome enters their data or calculations.
+- Missing actual prices create gaps. A terminal segment completes each observed quarter
+  before a gap or the window end; the chart never invents a 41st record. The price axis
+  includes observed extremes to avoid hiding errors outside the forecast interval.
+- Controls and metric groups wrap at narrow widths. Existing keyboard inspection and
+  timezone controls also govern the selected outcome, without another outcome request.

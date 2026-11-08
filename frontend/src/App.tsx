@@ -21,6 +21,7 @@ export default function App() {
   const [state, setState] = useState<LoadState>({ status: 'loading' });
   const [catalogState, setCatalogState] = useState<CatalogState>({ status: 'loading' });
   const [selectedOrigin, setSelectedOrigin] = useState<string | null>(null);
+  const [comparisonEnabled, setComparisonEnabled] = useState(false);
   useEffect(() => {
     let active = true;
     const controller = new AbortController();
@@ -128,7 +129,8 @@ export default function App() {
             </dl>
           </section>
 
-          <ForecastAnalysis key={`analysis/${state.forecast.run_id}/${state.forecast.forecast_origin_utc}`} points={state.forecast.points} zone={zone} />
+          <ForecastAnalysis key={`analysis/${state.forecast.run_id}/${state.forecast.forecast_origin_utc}`} forecast={state.forecast} zone={zone}
+            comparisonEnabled={comparisonEnabled} onComparisonEnabled={setComparisonEnabled} />
           <ForecastTable key={`table/${state.forecast.run_id}/${state.forecast.forecast_origin_utc}`} points={state.forecast.points} zone={zone} />
 
           <details className="run-details">
@@ -147,7 +149,7 @@ export default function App() {
           </details>
         </>}
       </main>
-      <footer className="app-footer"><span>Historical forecasts. Actual outcomes are not displayed.</span><span>Challenge demonstration · No live market feed</span></footer>
+      <footer className="app-footer"><span>Historical forecasts. Optional actual outcomes are retrospective.</span><span>Challenge demonstration · No live market feed</span></footer>
     </>
   );
 }

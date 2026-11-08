@@ -7,7 +7,9 @@ Steps 2A and 2B were approved and published by the user. Step 3 is split into 3A
 and published; the user authorized 3B on 7 November 2026. Its results and verification
 limits are recorded below. The user separately authorized Step 4 as one implementation
 step on 8 November 2026. Step 5 is now split into 5A (history API) and 5B (comparison
-UI); the user authorized 5A on 8 November. Step 5B and later work require separate approval. The user confirmed on
+UI); the user authorized 5A and then 5B on 8 November. Step 5A passed independent review;
+Step 5B's implementation and verification limits are recorded below. Step 6 requires
+separate approval. The user confirmed on
 7 November 2026 that engine Step 6
 passed independent review and was published to GitHub. Older engine documents still
 describe that review as pending; this plan records the update without editing them.**
@@ -858,7 +860,7 @@ service, engine, dependencies, original files and test actuals remain untouched.
 macOS and interactive Swagger/browser comparison were not verified. No accuracy
 improvement claimed. **Engine change proposals: None.** Stop before Step 5B/Git writes.
 
-### Step 5B. Optional retrospective comparison UI (not yet authorized)
+### Step 5B. Optional retrospective comparison UI
 
 Add `HistoricalReview.tsx`, CSS and focused tests, with frontend API/types/App/chart
 integration and guide updates. Place Show actual outcomes beside the price-chart
@@ -872,6 +874,58 @@ and validate forecast/outcome run identity. Missing actuals appear as gaps; keep
 40 quarters. No history request or outcome display before enabling comparison.
 Verify real integration, errors/retry, rapid selection and missing/tail/null cases.
 Stop for independent review and explicit Step 6 approval after 5B.
+
+#### Step 5B implementation result (8 November 2026)
+
+Implemented the separately authorized comparison UI. Show actual outcomes starts off
+beside the price-chart heading; no history request or actual display occurs until it
+is enabled. `HistoricalReview` owns fetching, cancellation, loading/error/retry and
+retrospective metrics/readouts. App retains the enabled preference across origin
+changes; keyed analysis instances clear old outcomes and reset quarter inspection.
+
+The frontend history boundary allowlists every field, checks full forecast/run identity,
+all 40 delivery rows, finite prices, nullable directions, snapshot metadata and metric
+consistency. Outcome values remain distinct from forecast points. Missing prices stay
+null, metrics exclude missing prices, and direction availability is independent.
+No raw error bodies or source data are rendered. No numerical spot values/levels or
+actual spike classifications are introduced.
+
+The price chart adds a labeled dash-dot observed series and outlined selected marker.
+Null gaps remain disconnected, and actual terminal segments cover the full quarter
+before each gap or window end without a 41st row. Rounded price bounds contain both
+forecast intervals and observed extremes. A compact comparison strip below the chart
+shows selected-window P50 MAE, inclusive P10–P90 coverage, matched/missing counts and
+exact selected-quarter price/direction. Shared inspection/timezone controls apply;
+probability plots and the price table remain forecast-only. Comparison controls and
+exact outcomes survive plotting failure through the existing boundary's recovery slot.
+
+**93 relevant tests passed across focused runs**, including history contract/privacy,
+inclusive metrics, missing/isolated/tail prices, null metrics, response identity,
+on/off/retry, rapid origin changes, ignored cancellation, shared selection, timezone
+presentation and actual chart failure isolation. Existing forecast API, price/probability
+chart, adapter, boundary and App checks were included because their code/integration is
+affected. TypeScript/production build passed. Tests use invented fixtures only. Two
+test-harness issues (reused consumed Response and inspecting a lazy chart before load)
+were corrected; failed runs are not counted as passes.
+
+A real production-preview HTTP/helper check exercised the frontend API boundary and
+adapter against all six origins: **240 forecasts and 240 outcomes**, preserved values,
+unmutated responses, complete ten-hour domains, matching outcome snapshot, stable repeat
+responses and all eight built assets served successfully. No restricted spot field
+appeared. Engine revision:
+`sha256:b933f7932aefa2e4edd030291e259a92178d82afd6858b206b9b45a4cf3c0fae`.
+Safe report and review evidence: `baseline_output/application/step-5b-01/`.
+The temporary backend/preview were stopped after verification.
+
+Windows Node 24.13.0/npm 11.6.2 and the existing shared Python environment; no dependency
+changes. Browser inventory reported the browser access host unavailable. Real rendering,
+physical touch, screen-reader/responsive/zoom behavior, scrolling, Console and Network
+checks remain manual. Static design/contrast and synthetic interaction evidence do not
+establish those browser checks; no overall Anti Slop PASS. macOS/fresh provisioning and
+unrelated backend/engine suites were not rerun. Backend, engine, API/dependencies/locks
+and original challenge files are unchanged. No accuracy improvement claimed.
+**Engine change proposals: None.** Stop for user testing and independent review before
+Step 6 or Git writes.
 
 ## Step 6. Improve usability, evidence and the local demonstration
 
@@ -964,5 +1018,5 @@ Use [the independent review workflow](REVIEW.md); obtain approval for the affect
 candidate before any separately authorized push. An approved roadmap or review verdict
 does not authorize implementation of the next step, committing, pushing or merging.
 
-The roadmap was initially a planning-only change. Steps 1A, 1B, 2A, 2B, 3A, 3B, 4 and 5A's separately
+The roadmap was initially a planning-only change. Steps 1A, 1B, 2A, 2B, 3A, 3B, 4, 5A and 5B's separately
 authorized implementation and actual verification are recorded above; later steps remain gated.

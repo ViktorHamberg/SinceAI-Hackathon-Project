@@ -1,4 +1,4 @@
-import type { ForecastResponse, OriginsResponse } from '../api/forecast';
+import type { ForecastResponse, HistoryResponse, OriginsResponse } from '../api/forecast';
 
 /** Invented values only. Never replace this with exported challenge data. */
 export function fixture(origin = '2026-09-06T21:00:00Z'): ForecastResponse {
@@ -27,4 +27,26 @@ export function originsFixture(origins = ['2026-09-06T21:00:00Z', '2026-09-06T22
 
 export function selectedFixture(origin: string): ForecastResponse {
   return { ...fixture(origin), fit_cutoff_utc: fixture().fit_cutoff_utc };
+}
+
+export function historyFixture(forecast = fixture(), prices: (number | null)[] =
+  [forecast.points[0].p10, forecast.points[1].p90, 200]): HistoryResponse {
+  const points = forecast.points.map((point, index) => ({
+    delivery_start_utc: point.delivery_start_utc, step: point.step,
+    actual_imbalance_price: prices[index] ?? null,
+    actual_direction: index < 4 ? (['up', 'down', 'none'] as const)[index % 3] : null,
+  }));
+  const matched = points.filter((point) => point.actual_imbalance_price !== null);
+  const covered = matched.filter((point) => forecast.points[point.step - 1].p10 <= point.actual_imbalance_price! &&
+    point.actual_imbalance_price! <= forecast.points[point.step - 1].p90).length;
+  return {
+    ...forecast, comparison_mode: 'retrospective',
+    actuals_snapshot_id: '00000000-0000-4000-8000-000000000002', actuals_loaded_at_utc: '2026-11-08T00:00:00Z',
+    metrics: {
+      total_quarters: 40, matched_price_count: matched.length, missing_price_count: 40 - matched.length,
+      matched_direction_count: 4, missing_direction_count: 36, covered_price_count: covered,
+      mae_p50: matched.length ? matched.reduce((sum, point) => sum + Math.abs(point.actual_imbalance_price! - forecast.points[point.step - 1].p50), 0) / matched.length : null,
+      coverage_p10_p90: matched.length ? covered / matched.length : null,
+    }, points,
+  };
 }

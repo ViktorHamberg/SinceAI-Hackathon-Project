@@ -1,10 +1,13 @@
 # Forecast frontend
 
-Steps 2A, 2B, 3B and 4 connect React/TypeScript/Vite to the local FastAPI service. Choose
+Steps 2A, 2B, 3B, 4 and 5B connect React/TypeScript/Vite to the local FastAPI service. Choose
 one of six cached historical forecasts: all 40 quarter-hours, P10/P50/P90 in EUR/MWh,
 Helsinki timestamps with explicit offsets, and model/run identity. The accessible
 table accompanies the median/P10-to-P90 chart, direction and exceptional-price
 probability timelines, and forecast risk summaries. The model remains the persistence baseline.
+
+An optional retrospective comparison overlays observed prices and summarizes the
+selected forecast's errors. Actual outcomes remain separate from forecasting.
 
 Application styling lives in `src/index.css`, `src/App.css` and the component CSS
 files. No Tailwind dependency is used. Recharts manages its own SVG/HTML geometry.
@@ -344,3 +347,65 @@ Manual browser checks:
    requests/retry: old risk/price/probability views must all clear together.
 5. Check 320px/intermediate/desktop, 200% zoom, keyboard focus/exit, touch scrolling,
    Console and Network. Delivery inspection must create no data requests.
+
+## Actual-outcome comparison (Step 5B)
+
+Beside the 10-hour price outlook heading, **Show actual outcomes** starts off. Enabling
+it requests `/api/history?origin=...` for the displayed forecast. Its pressed state
+indicates comparison is enabled. A dash-dot observed-price line and outlined marker
+are labeled retrospective: these outcomes were revealed after issue time and never
+change the cached forecast. Disable it to remove the overlay, metrics and outcomes.
+Probability timelines and the price table continue displaying forecasts only.
+
+The comparison strip below the price chart shows P50 MAE in EUR/MWh, inclusive P10–P90
+coverage and matched actual-price count out of 40. These metrics cover the selected
+ten-hour window, not the official aggregate score. Missing prices remain gaps and are
+excluded from both metrics; zero matched prices yields Unavailable metrics. The chart
+axis expands to contain observed extremes. No observed values are interpolated through
+gaps. The selected-quarter readout shows the exact actual imbalance price and balancing
+direction independently, with Unavailable for missing fields. Direction `none` means
+no dominating mFRR direction. No spot prices or actual spike labels are fetched/displayed.
+
+Changing issue time keeps comparison enabled and retrieves the new forecast's outcomes.
+Old views clear and old requests are canceled/ignored. Responses must match all forecast
+identity fields and all 40 delivery rows; extra fields and inconsistent metrics are
+rejected. Changing timezone or inspecting a quarter makes no history request. Network
+or identity errors affect comparison only: keep inspecting the forecast, retry actual
+outcomes, or reload the forecast after a backend restart. Comparison controls/readouts
+also remain available when plotting fails.
+
+Focused verification from the repository root:
+
+```powershell
+npm.cmd --prefix frontend run test -- --run src/api/history.test.ts src/components/HistoricalReview.test.tsx src/AppHistory.test.tsx src/forecastChart.test.ts src/components/ForecastChart.test.tsx src/components/ProbabilityChart.test.tsx src/components/ChartBoundary.test.tsx src/App.test.tsx src/api/forecast.test.ts
+npm.cmd --prefix frontend run build
+```
+
+Manual checks with the backend and frontend running:
+
+1. On a fresh page, confirm Show actual outcomes is off, the chart is forecast-only,
+   and Network contains no `/api/history` request.
+2. Enable it. Expect a retrospective observed-price legend/line and comparison strip.
+   Compare the selected actual price/direction and metrics against `/api/history` in
+   Swagger. Displayed window metrics round to two decimals; actual prices retain precision.
+3. Use Next/Previous quarter, chart keyboard arrows/Home/End, and the summary's delivery
+   list. Actual-quarter time/values must follow the same selection. Change Helsinki/UTC:
+   only time presentation changes, with no extra outcome request.
+4. Change issue time while enabled, including quickly several times. Old outcomes must
+   clear; the final comparison must belong to the displayed forecast. Disable comparison:
+   all outcome views disappear. Re-enable: comparison loads again.
+5. In browser developer tools, block `/api/history*` and reload. Forecast retrieval must
+   still work. Enable comparison: expect a safe error and Retry actual outcomes. Unblock
+   and retry; comparison should recover without replacing the forecast. Synthetic tests
+   cover missing/tail/all-null outcomes because the current six real windows have prices.
+6. Check 320px/intermediate/desktop widths, 200% zoom, keyboard focus, touch scrolling,
+   Console and Network. Actual observed prices may lie far outside the forecast interval.
+
+Windows verification: **93 relevant tests passed across focused runs**, TypeScript/build
+passed, and a production-preview API/helper check preserved six origins /240 forecast
+and outcome rows, exact values, complete domains, stable responses and all eight built
+assets. Private evidence is in `baseline_output/application/step-5b-01/`. Browser access
+host was unavailable, so real rendering, physical touch, screen readers, responsive/zoom,
+scrolling and Console/Network verification remain manual. No overall Anti Slop PASS.
+macOS/fresh installation and unrelated backend/engine suites were not rerun. No accuracy
+improvement is claimed and no dependency changes were needed.

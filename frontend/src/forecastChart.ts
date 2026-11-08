@@ -1,4 +1,4 @@
-import type { ForecastPoint } from './api/forecast';
+import type { ForecastPoint, HistoryPoint } from './api/forecast';
 import type { DisplayZone } from './time';
 
 export const QUARTER_MS = 15 * 60 * 1000;
@@ -16,17 +16,19 @@ export function quarterAtPosition(x: number, y: number, width: number, height: n
   return Math.min(count - 1, Math.floor((x - left) / (right - left) * count));
 }
 
-export function buildChartData(points: ForecastPoint[]) {
-  const data = points.map((point) => ({
+export function buildChartData(points: ForecastPoint[], outcomes?: HistoryPoint[]) {
+  const data = points.map((point, index) => ({
     timestamp: Date.parse(point.delivery_start_utc),
     band: [point.p10, point.p90] as [number, number],
     p50: point.p50,
+    actual: outcomes?.[index].actual_imbalance_price ?? null,
     point,
   }));
   const start = data[0].timestamp;
   const end = data[data.length - 1].timestamp + QUARTER_MS;
-  const low = Math.min(...points.map((point) => point.p10));
-  const high = Math.max(...points.map((point) => point.p90));
+  const actualPrices = data.flatMap((row) => row.actual === null ? [] : [row.actual]);
+  const low = Math.min(...points.map((point) => point.p10), ...actualPrices);
+  const high = Math.max(...points.map((point) => point.p90), ...actualPrices);
   const padding = Math.max((high - low) * .08, 1);
   const targetStep = (high - low + 2 * padding) / 4;
   const magnitude = 10 ** Math.floor(Math.log10(targetStep));
