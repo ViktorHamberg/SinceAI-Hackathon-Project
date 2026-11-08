@@ -38,6 +38,6 @@ it('identifies direction winners and ties without interpreting them as price mov
   expect(highestDirections({ ...point, p_up: 0, p_down: 0, p_none: 1 })).toEqual(['No dominating mFRR direction']);
 });
 
-it.each([[0, '0%'], [1, '100%'], [.4, '40%'], [.123456, '12.35%'], [.000001, '<0.01%'], [.999999, '>99.99%']])('formats probability %s honestly as %s', (value, expected) => {
+it.each([[0, '0.000%'], [1, '100.000%'], [.4, '40.000%'], [.123456, '12.346%'], [.000001, '<0.001%'], [.999999, '>99.999%']])('formats probability %s honestly as %s', (value, expected) => {
   expect(formatProbability(value as number)).toBe(expected);
 });

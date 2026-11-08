@@ -58,7 +58,7 @@ it('renders a real ranged band, median and final-quarter marks with an accessibl
   expect(screen.getByRole('status')).toHaveTextContent('Quarter 1 of 40');
 });
 
-it('inspects all 40 real quarters with the keyboard and reports exact values and times', async () => {
+it('inspects all 40 real quarters with the keyboard and reports rounded values and times', async () => {
   const { container } = render(<ForecastChart points={fixture().points} zone="Europe/Helsinki" />);
   const user = userEvent.setup();
   const chart = await screen.findByRole('application', { name: 'Ten-hour imbalance price forecast' });
@@ -67,7 +67,7 @@ it('inspects all 40 real quarters with the keyboard and reports exact values and
   expect(chart).toHaveFocus();
   const first = await screen.findByRole('status');
   expect(first).toHaveTextContent('Quarter 1 of 40');
-  expect(within(first).getByText('-12.345678')).toBeVisible();
+  expect(within(first).getByText('-12.346')).toBeVisible();
   expect(first).toHaveTextContent('UTC start: 06 Sept 2026, 21:00 UTC');
   for (let index = 1; index < 40; index++) {
     await user.keyboard('{ArrowRight}');

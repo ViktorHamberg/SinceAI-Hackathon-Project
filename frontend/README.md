@@ -1,16 +1,18 @@
 # Forecast frontend
 
-The Step 6A layout puts the price outlook ahead of risk summaries and probabilities.
-Forecast selection and timezone controls remain shared. Open **View all 40 forecast
-quarters** below the plots for the exact table; it starts collapsed and preserves your
-expanded preference when changing issue time. Model/run details remain expandable.
-Task-based tabs are planned separately. No forecast calculations changed in this pass.
+The Forecast view puts the price outlook beside risk summaries, with probability
+timelines below. The **Raw Data** view contains the 40-quarter price table.
+Both views use the same forecast selection and timezone controls. Model/run details
+remain expandable on the Forecast view. No forecast calculations changed in this pass.
 
 Steps 2A, 2B, 3B, 4 and 5B connect React/TypeScript/Vite to the local FastAPI service. Choose
 one of six cached historical forecasts: all 40 quarter-hours, P10/P50/P90 in EUR/MWh,
-Helsinki timestamps with explicit offsets, and model/run identity. The accessible
-table accompanies the median/P10-to-P90 chart, direction and exceptional-price
-probability timelines, and forecast risk summaries. The model remains the persistence baseline.
+Helsinki timestamps with explicit offsets, and model/run identity. The Forecast view
+shows the median/P10-to-P90 chart, direction and exceptional-price probability
+timelines, risk summaries, and verified P50 contribution categories for the selected
+delivery quarter. The Raw Data view shows the accessible price table. Displayed
+numbers are rounded to three decimals; API values and calculations retain full precision. The
+backend currently selects the relative LightGBM model.
 
 An optional retrospective comparison overlays observed prices and summarizes the
 selected forecast's errors. Actual outcomes remain separate from forecasting.
@@ -169,10 +171,10 @@ local API proxy. This is a local build check, not a production deployment setup.
 | `src/api/forecast.ts` | Public response types, v1 validation and safe HTTP errors |
 | `src/time.ts` | Explicit Helsinki/UTC formatting and ten-hour end time |
 | `src/components/ForecastTable.tsx`, `.css` | Accessible 40-quarter price table |
-| `src/components/ForecastChart.tsx`, `.css` | Price/uncertainty plot, selection and exact-value readout |
+| `src/components/ForecastChart.tsx`, `.css` | Price/uncertainty plot, selection and three-decimal readout |
 | `src/components/ForecastAnalysis.tsx` | Owns shared quarter selection and memoized summary, isolating updates from App/table |
-| `src/components/ProbabilityChart.tsx`, `.css` | Separate 0–100% direction/spike timelines with matching UTC quarter geometry |
-| `src/components/RiskSummary.tsx`, `.css` | Per-quarter maxima, tied-quarter inspection and selected exact probabilities |
+| `src/components/ProbabilityChart.tsx`, `.css` | Fixed ±50 pp direction-balance and 0–100% spike timelines with matching UTC quarter geometry |
+| `src/components/RiskSummary.tsx`, `.css` | Per-quarter maxima, tied-quarter inspection and selected rounded probabilities |
 | `src/forecastSummary.ts` | Pure maxima, interval-width, direction-tie and percentage calculations |
 | `src/useQuarterInspection.ts` | Shared mouse/tap/keyboard quarter-inspection behavior |
 | `src/components/OriginSelector.tsx`, `.css` | Date-scaled replay timeline, local drag preview, keyboard/buttons and exact-time selection |
@@ -288,10 +290,10 @@ event anywhere in the ten-hour window; per-quarter probabilities are not summed.
 
 The selected-delivery readout shows all five probabilities and the direction with the
 highest probability, including ties. The native Inspect delivery quarter list provides
-access to all 40 quarters even if plotting fails. Expand Exact model probabilities
-(0–1) for unrounded API values. Percentage labels use up to two decimals and preserve
-near-boundary meaning with `<0.01%`/`>99.99%`; only exact 0/1 display as 0%/100%.
-Widths display to two decimals. Maxima and comparisons use original values; only
+access to all 40 quarters even if plotting fails. Expand Model probabilities
+(0–1, three decimals) for their rounded values. Percentage labels show three decimals
+and preserve near-boundary meaning with `<0.001%`/`>99.999%`.
+Widths display to three decimals. Maxima and comparisons use original values; only
 machine-scale arithmetic noise (eight scaled floating-point epsilons) is treated as a tie.
 
 Direction means the dominating **mFRR balancing regulation**: up, down or none. It is
@@ -300,11 +302,13 @@ spot + €50/MWh; low spike means strictly below spot − €50/MWh. Only probab
 shown, never actual spot values or calculated numerical spot-relative thresholds.
 These are forecast summaries, not model explanations, alerts or trading recommendations.
 
-Below the price chart, two probability timelines use the same delivery-start axis and
-complete ten-hour extent, including quarter 40's duration. Their axes stay at 0–100%.
-Step lines retain raw per-quarter probabilities; solid/dashed/dotted lines and labels
-distinguish events without red/green thresholds. Equal lines can overlap. Flat output
-is labeled honestly; no trend or unique riskiest quarter is invented.
+Below the price chart, two timelines use the same delivery-start axis and complete
+ten-hour extent, including quarter 40's duration. The direction chart plots `p_up − p_down`
+on a fixed −50 to +50 percentage-point axis, with zero centered. Its up/down readouts
+show the positive net difference on the corresponding side (zero on the other), while
+the no-direction readout retains its original probability. Balances outside the fixed axis are clipped
+visually and explicitly flagged. The spike chart stays at 0–100% and shows both spike
+probabilities. Flat output is labeled honestly; no trend or unique riskiest quarter is invented.
 
 Hover/tap or use Left/Right/Home/End on any plot to update the shared quarter, price
 guide, probability guides/legends and summary. Price-chart Previous/Next and the summary
@@ -345,8 +349,8 @@ Manual browser checks:
 
 1. Inspect quarters 1 and 40 through the summary list, both probability plots and
    price controls. All guides/readouts must agree; quarter 40 ends at origin +10h.
-2. Compare all five Exact model probabilities with the matching API point. Direction
-   totals should match the returned model values; displayed percentages can round.
+2. Compare all five rounded model probabilities with the matching API point. Direction
+   balance must equal `p_up − p_down`; displayed values can round.
 3. Use Inspect on a maximum; confirm its time/value and the selected quarter. Expect
    all-quarter ties for this baseline's flat probabilities. Widths can vary.
 4. Change origin and timezone; confirm reset/preservation behavior. Recheck failed

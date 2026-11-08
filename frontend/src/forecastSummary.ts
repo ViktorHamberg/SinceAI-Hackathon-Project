@@ -39,9 +39,9 @@ export function probabilitiesAreFlat(points: ForecastPoint[], keys: readonly Pro
   return keys.every((key) => points.every((point) => equal(point[key], points[0][key])));
 }
 
-const percentFormat = new Intl.NumberFormat('en-GB', { style: 'percent', maximumFractionDigits: 2 });
+const percentFormat = new Intl.NumberFormat('en-GB', { style: 'percent', minimumFractionDigits: 3, maximumFractionDigits: 3 });
 export function formatProbability(value: number): string {
-  if (value > 0 && value < .0001) return '<0.01%';
-  if (value < 1 && value > .9999) return '>99.99%';
+  if (value > 0 && value < .000005) return '<0.001%';
+  if (value < 1 && value > .999995) return '>99.999%';
   return percentFormat.format(value);
 }

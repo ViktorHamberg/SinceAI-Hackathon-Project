@@ -21,9 +21,9 @@ it('starts off, loads only on request, shows exact outcomes and hides all compar
   expect(screen.queryByText('Retrospective comparison')).not.toBeInTheDocument();
   await userEvent.click(screen.getByRole('button', { name: 'Show actual outcomes' }));
   await screen.findByText('Overlay ready');
-  expect(screen.getByText('66.67%')).toBeVisible();
+  expect(screen.getByText('66.667%')).toBeVisible();
   expect(screen.getByText('3 of 40 quarters')).toBeVisible();
-  expect(screen.getByText('-12.345678 EUR/MWh')).toBeVisible();
+  expect(screen.getByText('-12.346 EUR/MWh')).toBeVisible();
   expect(screen.getByText('Up regulation')).toBeVisible();
   rerender(<Review index={3} />);
   expect(screen.getByText('Unavailable')).toBeVisible();

@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import type { MouseEvent } from 'react';
 import { fetchOrigins, fetchSelectedForecast, requestErrorMessage } from './api/forecast';
 import type { ForecastResponse, OriginsResponse } from './api/forecast';
 import ForecastTable from './components/ForecastTable';
@@ -10,19 +11,42 @@ import './App.css';
 
 type LoadState = { status: 'loading' } | { status: 'error'; message: string } | { status: 'ready'; forecast: ForecastResponse };
 type CatalogState = { status: 'loading' } | { status: 'error' } | { status: 'ready'; catalog: OriginsResponse };
+const views = ['forecast', 'view-2', 'view-3', 'view-4', 'view-5'] as const;
+type View = typeof views[number];
+
+function currentView(): View {
+  const route = new URLSearchParams(window.location.search).get('view');
+  return views.find((view) => view === route) ?? 'forecast';
+}
 
 function Timestamp({ value, zone }: { value: string; zone: DisplayZone }) {
   return <time dateTime={value}>{formatTimestamp(value, zone)}</time>;
 }
 
 export default function App() {
+  const [view, setView] = useState<View>(currentView);
   const [attempt, setAttempt] = useState(0);
   const [zone, setZone] = useState<DisplayZone>('Europe/Helsinki');
   const [state, setState] = useState<LoadState>({ status: 'loading' });
   const [catalogState, setCatalogState] = useState<CatalogState>({ status: 'loading' });
   const [selectedOrigin, setSelectedOrigin] = useState<string | null>(null);
   const [comparisonEnabled, setComparisonEnabled] = useState(false);
-  const [tableExpanded, setTableExpanded] = useState(false);
+  useEffect(() => {
+    const updateView = () => setView(currentView());
+    window.addEventListener('popstate', updateView);
+    return () => window.removeEventListener('popstate', updateView);
+  }, []);
+
+  function navigateView(event: MouseEvent<HTMLAnchorElement>, target: View) {
+    if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+    event.preventDefault();
+    if (target === view) return;
+    const url = new URL(window.location.href);
+    url.searchParams.set('view', target);
+    url.hash = '';
+    window.history.pushState({}, '', url);
+    setView(target);
+  }
   useEffect(() => {
     let active = true;
     const controller = new AbortController();
@@ -73,19 +97,30 @@ export default function App() {
 
   return (
     <>
-      <a className="skip-link" href="#forecast-content">Skip to forecast</a>
+      <a className="skip-link" href="#forecast-content">Skip to content</a>
       <header className="app-header">
         <div className="header-inner">
           <div className="brand-name">Turku Energia<span>Since AI 2026 challenge</span></div>
+          <nav className="view-navigation" aria-label="Application views">
+            {views.map((item, index) => <a key={item} href={`?view=${item}`} onClick={(event) => navigateView(event, item)} aria-current={view === item ? 'page' : undefined}>
+              {item === 'forecast' ? 'Forecast' : item === 'view-2' ? 'Price Drivers' : item === 'view-3' ? 'Raw Data' : `View ${index + 1}`}
+            </a>)}
+          </nav>
           <span className="workspace-name">Finnish electricity markets</span>
         </div>
       </header>
 
       <main id="forecast-content" className="workspace" tabIndex={-1}>
+        {view !== 'forecast' && view !== 'view-3' && <section className="empty-view" aria-labelledby="empty-view-heading">
+          <p className="workspace-context">Historical replay / Finland</p>
+          <h1 id="empty-view-heading">{view === 'view-2' ? 'Price Drivers' : `View ${views.indexOf(view) + 1}`}</h1>
+          <p>This view is ready for future features.</p>
+        </section>}
+        <div hidden={view !== 'forecast' && view !== 'view-3'}>
         <div className="workspace-heading">
           <div>
             <p className="workspace-context">Historical replay / Finland</p>
-            <h1>Imbalance price forecast</h1>
+            <h1>{view === 'view-3' ? 'Raw Data' : 'Imbalance price forecast'}</h1>
           </div>
           <button className="reload-button" type="button" aria-disabled={state.status === 'loading'} onClick={reload}>
             {state.status === 'error' ? 'Retry connection' : 'Reload forecast'}
@@ -130,14 +165,15 @@ export default function App() {
             </dl>
           </section>
 
-          <ForecastAnalysis key={`analysis/${state.forecast.run_id}/${state.forecast.forecast_origin_utc}`} forecast={state.forecast} zone={zone}
-            comparisonEnabled={comparisonEnabled} onComparisonEnabled={setComparisonEnabled} />
-          <details className="forecast-details" open={tableExpanded} onToggle={(event) => setTableExpanded(event.currentTarget.open)}>
-            <summary>View all 40 forecast quarters</summary>
+          <div hidden={view !== 'forecast'}>
+            <ForecastAnalysis key={`analysis/${state.forecast.run_id}/${state.forecast.forecast_origin_utc}`} forecast={state.forecast} zone={zone}
+              comparisonEnabled={comparisonEnabled} onComparisonEnabled={setComparisonEnabled} />
+          </div>
+          {view === 'view-3' && <div className="raw-data-panel">
             <ForecastTable key={`table/${state.forecast.run_id}/${state.forecast.forecast_origin_utc}`} points={state.forecast.points} zone={zone} />
-          </details>
+          </div>}
 
-          <details className="run-details">
+          {view === 'forecast' && <details className="run-details">
             <summary>Model and run details</summary>
             <div className="run-details-content">
               <dl>
@@ -150,8 +186,9 @@ export default function App() {
               </dl>
               <p>Preparation time identifies this application run. The forecast origin identifies the historical moment being reviewed.</p>
             </div>
-          </details>
+          </details>}
         </>}
+        </div>
       </main>
       <footer className="app-footer"><span>Historical forecasts. Optional actual outcomes are retrospective.</span><span>Challenge demonstration · No live market feed</span></footer>
     </>

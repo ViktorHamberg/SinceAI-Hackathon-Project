@@ -1,16 +1,19 @@
 import { StrictMode } from 'react';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import App from './App';
 import { fixture, jsonResponse, originsFixture, selectedFixture } from './test/fixture';
+
+beforeEach(() => window.history.replaceState({}, '', '/'));
+afterEach(() => window.history.replaceState({}, '', '/'));
 
 function installForecastTransport(mock: (url: string, options: RequestInit) => Promise<Response>) {
   vi.stubGlobal('fetch', (url: string, options: RequestInit) => url === '/api/origins'
     ? Promise.resolve(jsonResponse(originsFixture())) : mock(url, options));
 }
 
-it('puts the price outlook before risks and preserves the optional table across forecast changes', async () => {
+it('puts the price outlook before risks and keeps the raw table current across forecast changes', async () => {
   const catalog = originsFixture();
   const transport = vi.fn((url: string) => Promise.resolve(jsonResponse(url === '/api/origins' ? catalog
     : selectedFixture(new URL(url, 'http://127.0.0.1').searchParams.get('origin')!))));
@@ -22,20 +25,42 @@ it('puts the price outlook before risks and preserves the optional table across 
   const probabilities = await screen.findByRole('heading', { name: 'Direction and exceptional-price probabilities' }, { timeout: 5000 });
   expect(price.compareDocumentPosition(risk) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   expect(risk.compareDocumentPosition(probabilities) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-  const disclosure = screen.getByText('View all 40 forecast quarters');
-  expect(disclosure.closest('details')).not.toHaveAttribute('open');
+  expect(screen.queryByRole('table')).not.toBeInTheDocument();
   const before = transport.mock.calls.length;
-  await user.click(disclosure);
+  await user.click(screen.getByRole('link', { name: 'Raw Data' }));
   expect(screen.getByRole('table')).toBeVisible();
   expect(screen.getAllByRole('row')).toHaveLength(41);
   expect(transport.mock.calls).toHaveLength(before);
   await user.selectOptions(screen.getByRole('combobox', { name: 'Choose exact issue time' }), catalog.origins[1]);
   await waitFor(() => expect(within(screen.getByRole('region', { name: 'Forecast context' })).getByText('07 Sept 2026, 01:00 UTC+3')).toBeVisible());
   expect(screen.getByRole('table')).toBeVisible();
-  await user.click(screen.getByText('View all 40 forecast quarters'));
-  expect(screen.getByRole('table')).not.toBeVisible();
+  await user.click(screen.getByRole('link', { name: 'Forecast' }));
+  expect(screen.queryByRole('table')).not.toBeInTheDocument();
   expect(transport.mock.calls).toHaveLength(before + 1);
 }, 15_000);
+
+it('navigates to empty views and returns without resetting the forecast', async () => {
+  const fetch = vi.fn().mockResolvedValue(jsonResponse());
+  installForecastTransport(fetch);
+  const originalUrl = window.location.href;
+  try {
+    render(<App />);
+    const user = userEvent.setup();
+    await screen.findByRole('heading', { name: '10-hour price outlook' });
+    await user.click(screen.getByRole('button', { name: 'UTC' }));
+    const count = fetch.mock.calls.length;
+    await user.click(screen.getByRole('link', { name: 'Raw Data' }));
+    expect(window.location.search).toBe('?view=view-3');
+    expect(screen.getByRole('heading', { name: 'Raw Data' })).toBeVisible();
+    expect(screen.getByRole('table')).toBeVisible();
+    await user.click(screen.getByRole('link', { name: 'Forecast' }));
+    expect(screen.queryByRole('table')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'UTC' })).toHaveAttribute('aria-pressed', 'true');
+    expect(fetch.mock.calls).toHaveLength(count);
+  } finally {
+    window.history.replaceState({}, '', originalUrl);
+  }
+});
 
 it('loads the real endpoint contract and displays origin, horizon and run identity', async () => {
   let resolve!: (response: Response) => void;
@@ -44,12 +69,13 @@ it('loads the real endpoint contract and displays origin, horizon and run identi
   expect(screen.getByRole('status')).toHaveTextContent('Loading forecast');
   await waitFor(() => expect(resolve).toBeDefined());
   await act(async () => resolve(jsonResponse()));
-  expect(await screen.findByRole('table')).not.toBeVisible();
-  await userEvent.click(screen.getByText('View all 40 forecast quarters'));
+  await screen.findByRole('heading', { name: '10-hour price outlook' });
+  await userEvent.click(screen.getByRole('link', { name: 'Raw Data' }));
   expect(screen.getByRole('table')).toBeVisible();
   expect(screen.getAllByRole('row')).toHaveLength(41);
   expect(screen.getByText('07 Sept 2026, 10:00 UTC+3')).toBeVisible();
   expect(screen.getByText(/Persistence baseline/)).toBeVisible();
+  await userEvent.click(screen.getByRole('link', { name: 'Forecast' }));
   await userEvent.click(screen.getByText('Model and run details'));
   expect(screen.getByText(fixture().run_id)).toBeVisible();
   expect(screen.getByText('Historical replay / Finland')).toBeVisible();
@@ -63,7 +89,8 @@ it('shows a safe error and recovers when the user retries', async () => {
   expect(screen.queryByText(/PRIVATE/)).not.toBeInTheDocument();
   expect(screen.queryByRole('table')).not.toBeInTheDocument();
   await userEvent.click(screen.getByRole('button', { name: 'Retry connection' }));
-  await userEvent.click(await screen.findByText('View all 40 forecast quarters'));
+  await screen.findByRole('heading', { name: '10-hour price outlook' });
+  await userEvent.click(screen.getByRole('link', { name: 'Raw Data' }));
   expect(await screen.findByRole('table')).toBeVisible();
   expect(mock).toHaveBeenCalledTimes(2);
 });
@@ -74,7 +101,7 @@ it('clears the previous forecast while reloading and on a malformed response', a
     .mockImplementationOnce(() => new Promise<Response>((done) => { resolve = done; }));
   installForecastTransport(mock);
   render(<App />);
-  await screen.findByRole('table');
+  await screen.findByRole('heading', { name: '10-hour price outlook' });
   await userEvent.click(screen.getByRole('button', { name: 'Reload forecast' }));
   expect(screen.getByRole('heading', { name: 'Loading forecast' })).toBeVisible();
   expect(screen.queryByRole('table')).not.toBeInTheDocument();
@@ -97,7 +124,7 @@ it('ignores a stale catalog response even if a transport disregards cancellation
   await waitFor(() => expect(resolvers).toHaveLength(2));
   expect(signals[0].aborted).toBe(true);
   await act(async () => resolvers[1](jsonResponse(originsFixture())));
-  await screen.findByRole('table');
+  await screen.findByRole('heading', { name: '10-hour price outlook' });
   await act(async () => resolvers[0](jsonResponse(originsFixture(['2026-09-07T00:00:00Z']))));
   expect(screen.getByRole('combobox', { name: 'Choose exact issue time' })).toHaveValue(fixture().forecast_origin_utc);
   expect(screen.getByText('07 Sept 2026, 10:00 UTC+3')).toBeVisible();
@@ -108,10 +135,13 @@ it('switches all displayed times by keyboard without another request or changed 
   installForecastTransport(fetch);
   const user = userEvent.setup();
   render(<App />);
-  await screen.findByRole('table');
-  fireEvent.click(screen.getByText('View all 40 forecast quarters'));
+  await screen.findByRole('heading', { name: '10-hour price outlook' });
   await user.tab();
-  expect(screen.getByRole('link', { name: 'Skip to forecast' })).toHaveFocus();
+  expect(screen.getByRole('link', { name: 'Skip to content' })).toHaveFocus();
+  for (const name of ['Forecast', 'Price Drivers', 'Raw Data', 'View 4', 'View 5']) {
+    await user.tab();
+    expect(screen.getByRole('link', { name })).toHaveFocus();
+  }
   await user.tab();
   expect(screen.getByRole('button', { name: 'Reload forecast' })).toHaveFocus();
   await user.tab();
@@ -124,7 +154,9 @@ it('switches all displayed times by keyboard without another request or changed 
   expect(screen.getByRole('button', { name: 'Helsinki' })).toHaveAttribute('aria-pressed', 'false');
   expect(within(screen.getByRole('region', { name: 'Forecast context' })).getByText('06 Sept 2026, 21:00 UTC')).toBeVisible();
   expect(screen.getByText('07 Sept 2026, 07:00 UTC')).toBeVisible();
-  expect(within(screen.getByRole('table')).getByText('-12.345678')).toBeVisible();
+  await user.click(screen.getByRole('link', { name: 'Raw Data' }));
+  expect(within(screen.getByRole('table')).getByText('-12.346')).toBeVisible();
+  await user.click(screen.getByRole('link', { name: 'Forecast' }));
   await user.click(screen.getByText('Model and run details'));
   expect(screen.getByText('07 Nov 2026, 12:00 UTC')).toBeVisible();
   expect(fetch).toHaveBeenCalledTimes(1);
@@ -140,7 +172,7 @@ it('keeps the reload control and focus stable and ignores activation while pendi
   installForecastTransport(fetch);
   const user = userEvent.setup();
   render(<App />);
-  await screen.findByRole('table');
+  await screen.findByRole('heading', { name: '10-hour price outlook' });
   const reload = screen.getByRole('button', { name: 'Reload forecast' });
   await user.click(reload);
   expect(reload).toHaveFocus();
@@ -148,7 +180,7 @@ it('keeps the reload control and focus stable and ignores activation while pendi
   await user.keyboard('{Enter}');
   expect(fetch).toHaveBeenCalledTimes(2);
   await act(async () => resolve(jsonResponse()));
-  await screen.findByRole('table');
+  await screen.findByRole('heading', { name: '10-hour price outlook' });
   expect(reload).toHaveFocus();
   expect(reload).toHaveAttribute('aria-disabled', 'false');
 });
@@ -160,7 +192,7 @@ it('changes the complete snapshot, resets chart inspection and preserves the tim
   vi.stubGlobal('fetch', transport);
   render(<App />);
   const user = userEvent.setup();
-  await screen.findByRole('table');
+  await screen.findByRole('heading', { name: '10-hour price outlook' });
   const chart = await screen.findByRole('application', { name: 'Ten-hour imbalance price forecast' });
   chart.focus();
   await user.keyboard('{End}');
@@ -190,7 +222,7 @@ it.each(['resolve', 'reject'])('ignores an obsolete selected-origin response tha
     return Promise.resolve(jsonResponse(selectedFixture(origin)));
   }));
   render(<App />);
-  await screen.findByRole('table');
+  await screen.findByRole('heading', { name: '10-hour price outlook' });
   const user = userEvent.setup();
   await user.selectOptions(screen.getByRole('combobox', { name: 'Choose exact issue time' }), catalog.origins[1]);
   expect(screen.queryByRole('table')).not.toBeInTheDocument();
@@ -214,14 +246,14 @@ it('refreshes the catalog on retry after the backend generation changes', async 
     return Promise.resolve(jsonResponse({ ...selectedFixture(origin), run_id: restarted ? newRun : catalog.run_id }));
   }));
   render(<App />);
-  await screen.findByRole('table');
+  await screen.findByRole('heading', { name: '10-hour price outlook' });
   restarted = true;
   const user = userEvent.setup();
   await user.selectOptions(screen.getByRole('combobox', { name: 'Choose exact issue time' }), catalog.origins[1]);
   expect(await screen.findByRole('alert')).toHaveTextContent('incomplete or unsupported');
   expect(screen.queryByRole('table')).not.toBeInTheDocument();
   await user.click(screen.getByRole('button', { name: 'Retry connection' }));
-  await screen.findByRole('table');
+  await screen.findByRole('heading', { name: '10-hour price outlook' });
   expect(screen.getByRole('combobox', { name: 'Choose exact issue time' })).toHaveValue(catalog.origins[1]);
   await user.click(screen.getByText('Model and run details'));
   expect(screen.getByText(newRun)).toBeVisible();
@@ -233,8 +265,7 @@ it('keeps the displayed forecast while dragging and requests only the released o
     : selectedFixture(new URL(url, 'http://127.0.0.1').searchParams.get('origin')!))));
   vi.stubGlobal('fetch', transport);
   render(<App />);
-  await screen.findByRole('table');
-  fireEvent.click(screen.getByText('View all 40 forecast quarters'));
+  await screen.findByRole('heading', { name: '10-hour price outlook' });
   const slider = screen.getByRole('slider');
   const before = transport.mock.calls.length;
   fireEvent(slider, Object.assign(new MouseEvent('pointerdown', { bubbles: true, button: 0 }), { isPrimary: true, pointerId: 8 }));
@@ -242,7 +273,7 @@ it('keeps the displayed forecast while dragging and requests only the released o
   fireEvent.change(slider, { target: { value: Date.parse(catalog.origins[2]) } });
   expect(transport.mock.calls).toHaveLength(before);
   expect(screen.getByText('Preview · release to load')).toBeVisible();
-  expect(screen.getByRole('table')).toBeVisible();
+  expect(screen.getByRole('application', { name: 'Ten-hour imbalance price forecast' })).toBeVisible();
   expect(within(screen.getByRole('region', { name: 'Forecast context' })).getByText('07 Sept 2026, 00:00 UTC+3')).toBeVisible();
   fireEvent(slider, Object.assign(new MouseEvent('pointerup', { bubbles: true }), { pointerId: 8 }));
   await waitFor(() => expect(within(screen.getByRole('region', { name: 'Forecast context' })).getByText('04 Oct 2026, 00:00 UTC+3')).toBeVisible());
