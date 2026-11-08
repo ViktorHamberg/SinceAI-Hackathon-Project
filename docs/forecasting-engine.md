@@ -155,6 +155,10 @@ evidence = result.provenance   # separate fitting and inference evidence
 Reuse `fitted` for later origins with appropriately available inputs. The public
 `forecast` contract accepts other implementations of `FittedPredictor`; selecting
 the persistence model above does not bind the application contract to that model.
+The backend currently selects `LightGBMPredictor(target_mode="spot_relative")` with
+the provisional `relative-control-v1` recipe and reports predictor ID
+`lightgbm-relative-v1`. It fits once before serving cached forecasts. The example
+above explicitly selects Persistence; engine CLI defaults remain unchanged.
 Optional disk export is `export_forecasts(frame, path, origins=origins)` from
 `forecast_engine`. Official validation/scoring remain workflow responsibilities.
 

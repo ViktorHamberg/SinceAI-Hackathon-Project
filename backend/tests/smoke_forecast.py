@@ -22,7 +22,7 @@ def main(argv=None) -> int:
     args = parser.parse_args(argv)
     try:
         import pandas as pd
-        from forecast_engine.models import PersistencePredictor
+        from forecast_engine.models.lightgbm import LightGBMPredictor
 
         config = ForecastConfig.from_data_dir(args.data_dir)
         source_paths = [config.inputs_path, config.spot_path]
@@ -49,13 +49,13 @@ def main(argv=None) -> int:
             assert point["step"] == row.step
             for name in ("p10", "p50", "p90", "p_up", "p_down", "p_none", "p_spike_high", "p_spike_low"):
                 assert point[name] == getattr(row, name)
-        with patch.object(PersistencePredictor, "fit", side_effect=AssertionError("refitting forbidden")), \
+        with patch.object(LightGBMPredictor, "fit", side_effect=AssertionError("refitting forbidden")), \
              patch.object(type(service._fitted), "predict", side_effect=AssertionError("prediction forbidden")):
             assert service.response() == response
             assert json.loads(service.response_json()) == response
         assert loaded_paths == source_paths
         assert before == [hashlib.sha256(p.read_bytes()).hexdigest() for p in source_paths]
-        assert "spot_price" not in service.response_json()
+        assert '"spot_price":' not in service.response_json()
         print(json.dumps({
             "status": "pass", "forecast_rows": len(frame), "dataset_reads": len(loaded_paths),
             "actuals_reads": 0, "required_values_match_engine": True,

@@ -24,6 +24,20 @@ from backend.tests.test_forecast_service import PRIVATE_SENTINEL, synthetic_resu
 from forecast_engine import ForecastInputs, RunConfig
 
 
+class SmokeArgumentsTests(unittest.TestCase):
+    def test_startup_timeout_default_override_and_invalid_values(self):
+        from backend.tests.smoke_forecast_api import _parse_args
+
+        self.assertEqual(_parse_args([]).startup_timeout, 180.0)
+        args = _parse_args(["--data-dir", "folder with spaces", "--startup-timeout", "1200.5"])
+        self.assertEqual(args.startup_timeout, 1200.5)
+        self.assertEqual(args.data_dir, Path("folder with spaces"))
+        for value in ("0", "-1", "nan", "inf", "-inf", "invalid"):
+            with self.subTest(value=value), redirect_stderr(StringIO()), self.assertRaises(SystemExit) as error:
+                _parse_args(["--startup-timeout", value])
+            self.assertEqual(error.exception.code, 2)
+
+
 class ForecastApiTests(unittest.TestCase):
     def setUp(self):
         self.result = synthetic_result()
@@ -246,7 +260,6 @@ class ForecastApiTests(unittest.TestCase):
 class NativeDriverApiTests(unittest.TestCase):
     def test_genuine_relative_engine_drivers_reach_cached_http_response(self):
         import pandas as pd
-        from forecast_engine.models.lightgbm import LightGBMPredictor
         from forecast_engine.tests.test_lightgbm import ml_fixture
 
         data, source_config, recipe = ml_fixture()
@@ -264,9 +277,7 @@ class NativeDriverApiTests(unittest.TestCase):
             services = []
 
             def prepare():
-                service = prepare_forecast(config, predictor=LightGBMPredictor(
-                    recipe=recipe, min_training_rows=10, target_mode="spot_relative"),
-                    model_id="lightgbm-relative-fixture")
+                service = prepare_forecast(config)
                 services.append(service)
                 return service
 
@@ -280,6 +291,9 @@ class NativeDriverApiTests(unittest.TestCase):
                 result = services[0]._result.forecasts
                 payload = first.json()
                 self.assertEqual(payload["predictor_id"], "lightgbm-relative-v1")
+                self.assertEqual(payload["model_id"], "relative-control-v1")
+                self.assertEqual(client.get("/api/origins").json()["model_id"], "relative-control-v1")
+                self.assertGreater(len({point["p50"] for point in payload["points"]}), 1)
                 expected = [None if pd.isna(value) else value for value in result.top_drivers]
                 self.assertTrue(any(value is not None for value in expected))
                 self.assertEqual([p["top_drivers"] for p in payload["points"]], expected)

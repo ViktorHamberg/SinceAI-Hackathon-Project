@@ -103,6 +103,22 @@ class ForecastServiceTests(unittest.TestCase):
                 self.assertEqual(service.response(), json.loads(before))
         self.assertGreaterEqual(service.preparation_seconds, 0)
 
+    def test_default_selects_relative_control_and_fits_once(self):
+        from forecast_engine.experiments.recipes import RECIPES
+        from forecast_engine.models.lightgbm import LightGBMPredictor
+
+        expected = RECIPES["relative-control-v1"].predictor()
+        self.assertEqual(LightGBMPredictor(target_mode="spot_relative"), expected)
+        with patch("backend.app.forecast_service.LightGBMPredictor", return_value=self.predictor) as constructor:
+            service = prepare_forecast(self.config)
+        constructor.assert_called_once_with(target_mode="spot_relative")
+        self.predictor.fit.assert_called_once_with(self.data, config=RunConfig.validation())
+        self.fitted.predict.assert_called_once_with(self.data, origins=self.config.origins)
+        self.assertEqual(service.response()["model_id"], "relative-control-v1")
+        self.assertEqual(service.origins_response()["model_id"], "relative-control-v1")
+        self.assertEqual(service.response(), service.response())
+        self.predictor.fit.assert_called_once()
+
     def test_callers_cannot_mutate_the_cached_response(self):
         service = self.prepare()
         original = service.response_json()
@@ -287,7 +303,9 @@ class ConfigurationAndImportTests(unittest.TestCase):
             sys.path.insert(0,sys.argv[1])
             from backend.app.config import ForecastConfig
             from backend.app.forecast_service import prepare_forecast
-            service=prepare_forecast(ForecastConfig.from_data_dir(sys.argv[2]))
+            from forecast_engine.models import PersistencePredictor
+            service=prepare_forecast(ForecastConfig.from_data_dir(sys.argv[2]),
+                                     predictor=PersistencePredictor(), model_id="persistence-v1")
             response=service.response()
             assert len(response["points"])==40
             assert response["points"][0]["p50"]==95.
