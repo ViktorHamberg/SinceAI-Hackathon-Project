@@ -5,7 +5,38 @@ import { useState } from 'react';
 import PriceChart from './ForecastChart';
 import type { ForecastPoint } from '../api/forecast';
 import type { DisplayZone } from '../time';
-import { fixture } from '../test/fixture';
+import { fixture, historyFixture } from '../test/fixture';
+
+it('draws isolated actual quarters and the final actual through their delivery ends, leaving missing quarters blank', async () => {
+  const forecast = fixture();
+  const prices = Array<number | null>(40).fill(null);
+  prices[0] = -200; prices[2] = 300; prices[39] = 150;
+  const history = historyFixture(forecast, prices);
+  const { container } = render(<PriceChart points={forecast.points} zone="UTC" selectedIndex={39} onSelect={vi.fn()} history={history} />);
+  await waitFor(() => expect(container.querySelectorAll('.observed-quarter-end line')).toHaveLength(3));
+  const segments = [...container.querySelectorAll('.observed-quarter-end line')];
+  for (const segment of segments) {
+    expect(Number(segment.getAttribute('x2')) - Number(segment.getAttribute('x1'))).toBeCloseTo(830 / 40, 2);
+    expect(segment.getAttribute('y1')).toBe(segment.getAttribute('y2'));
+  }
+  expect(Number(segments[2].getAttribute('x2'))).toBeCloseTo(888, 2);
+  expect(screen.getByRole('list', { name: 'Chart legend' })).toHaveTextContent('Observed price · retrospective');
+  expect(screen.getByRole('status')).toHaveTextContent('Quarter 40 of 40');
+  expect(segments.map((line) => Number(line.getAttribute('x1')))).toEqual([
+    expect.closeTo(58, 2), expect.closeTo(58 + 2 * 830 / 40, 2), expect.closeTo(58 + 39 * 830 / 40, 2),
+  ]);
+});
+
+it('never connects observed lines across a missing quarter', async () => {
+  const forecast = fixture();
+  const history = historyFixture(forecast, [10, 20, null, 30, 40]);
+  const { container } = render(<PriceChart points={forecast.points} zone="UTC" selectedIndex={0} onSelect={vi.fn()} history={history} />);
+  await waitFor(() => expect(container.querySelector('.observed-price .recharts-line-curve')).not.toBeNull());
+  const path = container.querySelector('.observed-price .recharts-line-curve')!.getAttribute('d')!;
+  const starts = [...path.matchAll(/M(-?[\d.]+),/g)].map((match) => Number(match[1]));
+  expect(starts).toEqual([expect.closeTo(58, 2), expect.closeTo(58 + 3 * 830 / 40, 2)]);
+  expect(container.querySelectorAll('.observed-quarter-end line')).toHaveLength(2);
+});
 
 function ForecastChart({ points, zone }: { points: ForecastPoint[]; zone: DisplayZone }) {
   const [selectedIndex, onSelect] = useState(0);

@@ -32,6 +32,30 @@ export interface OriginsResponse extends Omit<ForecastResponse, 'forecast_origin
   origins: string[];
 }
 
+export interface HistoryPoint {
+  delivery_start_utc: string;
+  step: number;
+  actual_imbalance_price: number | null;
+  actual_direction: 'up' | 'down' | 'none' | null;
+}
+
+export interface HistoryResponse extends Omit<ForecastResponse, 'points'> {
+  comparison_mode: 'retrospective';
+  actuals_snapshot_id: string;
+  actuals_loaded_at_utc: string;
+  metrics: {
+    total_quarters: number;
+    matched_price_count: number;
+    missing_price_count: number;
+    matched_direction_count: number;
+    missing_direction_count: number;
+    mae_p50: number | null;
+    coverage_p10_p90: number | null;
+    covered_price_count: number;
+  };
+  points: HistoryPoint[];
+}
+
 type FailureKind = 'network' | 'http' | 'invalid' | 'timeout';
 const messages: Record<FailureKind, string> = {
   network: 'Could not connect to the forecast service. Check that the backend is running, then retry.',
@@ -151,6 +175,50 @@ export async function fetchSelectedForecast(catalog: OriginsResponse, origin: st
   requireValid(forecast.forecast_origin_utc === origin);
   requireValid(identityKeys.every((key) => forecast[key as keyof ForecastResponse] === catalog[key as keyof OriginsResponse]));
   return forecast;
+}
+
+export function parseHistory(value: unknown, forecast: ForecastResponse): HistoryResponse {
+  const history = objectWithKeys(value, [...envelopeKeys, 'comparison_mode', 'actuals_snapshot_id', 'actuals_loaded_at_utc', 'metrics']);
+  validateIdentity(history);
+  requireValid([...identityKeys, 'forecast_origin_utc'].every((key) => history[key] === forecast[key as keyof ForecastResponse]));
+  requireValid(history.comparison_mode === 'retrospective');
+  requireValid(typeof history.actuals_snapshot_id === 'string' && uuid.test(history.actuals_snapshot_id));
+  timestamp(history.actuals_loaded_at_utc);
+  requireValid(Array.isArray(history.points) && history.points.length === 40);
+  let matchedPrices = 0, matchedDirections = 0, covered = 0, errorSum = 0;
+  for (const [index, value] of history.points.entries()) {
+    const point = objectWithKeys(value, ['delivery_start_utc', 'step', 'actual_imbalance_price', 'actual_direction']);
+    const predicted = forecast.points[index];
+    requireValid(point.step === predicted.step && point.delivery_start_utc === predicted.delivery_start_utc);
+    requireValid(point.actual_imbalance_price === null || finite(point.actual_imbalance_price));
+    requireValid(point.actual_direction === null || ['up', 'down', 'none'].includes(point.actual_direction as string));
+    if (point.actual_imbalance_price !== null) {
+      const price = point.actual_imbalance_price as number;
+      matchedPrices++;
+      errorSum += Math.abs(price - predicted.p50);
+      covered += Number(predicted.p10 <= price && price <= predicted.p90);
+    }
+    matchedDirections += Number(point.actual_direction !== null);
+  }
+  const metrics = objectWithKeys(history.metrics, ['total_quarters', 'matched_price_count', 'missing_price_count',
+    'matched_direction_count', 'missing_direction_count', 'mae_p50', 'coverage_p10_p90', 'covered_price_count']);
+  requireValid(metrics.total_quarters === 40 && metrics.matched_price_count === matchedPrices && metrics.missing_price_count === 40 - matchedPrices);
+  requireValid(metrics.matched_direction_count === matchedDirections && metrics.missing_direction_count === 40 - matchedDirections);
+  requireValid(metrics.covered_price_count === covered);
+  if (matchedPrices === 0) {
+    requireValid(metrics.mae_p50 === null && metrics.coverage_p10_p90 === null);
+  } else {
+    const expectedMae = errorSum / matchedPrices;
+    requireValid(finite(metrics.mae_p50) && Number.isFinite(expectedMae) &&
+      Math.abs(metrics.mae_p50 - expectedMae) <= 32 * Number.EPSILON * Math.max(1, expectedMae));
+    requireValid(finite(metrics.coverage_p10_p90) && Math.abs(metrics.coverage_p10_p90 - covered / matchedPrices) <= Number.EPSILON);
+  }
+  return history as unknown as HistoryResponse;
+}
+
+export async function fetchHistory(forecast: ForecastResponse, signal?: AbortSignal): Promise<HistoryResponse> {
+  return fetchValidated(`/api/history?${new URLSearchParams({ origin: forecast.forecast_origin_utc })}`,
+    (value) => parseHistory(value, forecast), signal);
 }
 
 async function fetchValidated<T>(path: string, parse: (value: unknown) => T, signal?: AbortSignal): Promise<T> {

@@ -29,7 +29,7 @@ it('plots raw probabilities on zero-to-one-hundred axes, including boundaries an
 it('links price, probability and summary selection without fetching and preserves flat signals', async () => {
   const fetch = vi.fn();
   vi.stubGlobal('fetch', fetch);
-  render(<ForecastAnalysis points={fixture().points} zone="Europe/Helsinki" />);
+  render(<ForecastAnalysis forecast={fixture()} zone="Europe/Helsinki" comparisonEnabled={false} onComparisonEnabled={vi.fn()} />);
   const price = await screen.findByRole('application', { name: 'Ten-hour imbalance price forecast' });
   const direction = await screen.findByRole('application', { name: 'Balancing direction timeline' });
   const user = userEvent.setup();
@@ -54,7 +54,7 @@ it('retains real price table and selectable exact probabilities when plotting fa
   vi.spyOn(console, 'error').mockImplementation(() => {});
   vi.stubGlobal('ResizeObserver', class { constructor() { throw new Error('INVENTED_PLOT_FAILURE'); } });
   const points = fixture().points;
-  render(<><ForecastAnalysis points={points} zone="UTC" /><ForecastTable points={points} zone="UTC" /></>);
+  render(<><ForecastAnalysis forecast={{ ...fixture(), points }} zone="UTC" comparisonEnabled={false} onComparisonEnabled={vi.fn()} /><ForecastTable points={points} zone="UTC" /></>);
   expect(await screen.findByRole('heading', { name: 'Probability timelines unavailable' })).toBeVisible();
   expect(screen.getByRole('heading', { name: 'Price chart unavailable' })).toBeVisible();
   expect(screen.getByRole('table')).toBeVisible();
