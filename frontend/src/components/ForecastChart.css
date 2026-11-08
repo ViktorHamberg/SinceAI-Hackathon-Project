@@ -23,13 +23,17 @@
 .chart-selection dd { font-size: 1rem; font-variant-numeric: tabular-nums; }
 .selection-median dd { font-weight: 750; }
 .selection-unit { font-size: .75rem; color: var(--muted); }
+.selection-drivers { border-top: 1px solid var(--line); padding-top: .8rem; grid-column: 1 / -1; }
+.selection-drivers h3 { font-size: .8125rem; font-weight: 650; margin: 0 0 .45rem; }
+.selection-drivers ol { display: flex; flex-wrap: wrap; gap: .35rem 1.5rem; margin: 0 0 .45rem; padding-left: 1.25rem; font-size: .8125rem; line-height: 1.5; }
+.selection-drivers p { font-size: .75rem; color: var(--muted); }
 .chart-navigation { grid-column: 1 / -1; display: flex; justify-content: flex-end; gap: .6rem; margin-top: .3rem; }
 .chart-navigation button { flex: 1; }
 
 @media (min-width: 620px) {
   .forecast-chart { padding: 1.2rem 1rem 1rem; }
   .chart-heading { flex-direction: row; flex-wrap: wrap; align-items: center; }
-  .chart-canvas { height: 360px; }
+  .chart-canvas { height: 300px; }
   .chart-selection { grid-template-columns: 1fr auto; align-items: center; gap: .4rem 1.5rem; }
   .selection-unit { grid-column: 2; text-align: right; }
   .chart-navigation button { flex: 0 0 auto; min-width: 100px; }

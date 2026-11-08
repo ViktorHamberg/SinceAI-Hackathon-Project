@@ -3,13 +3,13 @@ import { expect, it } from 'vitest';
 import ForecastTable from './ForecastTable';
 import { fixture } from '../test/fixture';
 
-it('keeps all 40 quarters and exact negative/positive API values accessible', () => {
+it('keeps all 40 quarters and rounds displayed negative/positive prices to three decimals', () => {
   render(<ForecastTable points={fixture().points} />);
   const rows = within(screen.getByRole('table')).getAllByRole('row');
   expect(rows).toHaveLength(41);
-  expect(within(rows[1]).getByText('-12.345678')).toBeVisible();
-  expect(within(rows[1]).getByText('2.123456')).toBeVisible();
-  expect(within(rows[1]).getByText('45.987654')).toBeVisible();
+  expect(within(rows[1]).getByText('-12.346')).toBeVisible();
+  expect(within(rows[1]).getByText('2.123')).toBeVisible();
+  expect(within(rows[1]).getByText('45.988')).toBeVisible();
   expect(within(rows[40]).getByRole('rowheader')).toHaveTextContent('40');
   expect(screen.getByRole('region', { name: 'Forecast price table' })).toHaveAttribute('tabindex', '0');
   expect(screen.getByText(/Prices in EUR\/MWh/)).toBeVisible();
@@ -26,6 +26,6 @@ it('retains UTC instants and tooltips across the repeated local hour', () => {
 it('exposes UTC as visible text while preserving identifiers and prices', () => {
   render(<ForecastTable points={fixture().points} zone="UTC" />);
   expect(screen.getByText('06 Sept 2026, 21:00 UTC')).toHaveAttribute('datetime', '2026-09-06T21:00:00Z');
-  expect(screen.getByText('-12.345678')).toBeVisible();
+  expect(screen.getByText('-12.346')).toBeVisible();
   expect(screen.getAllByRole('row')).toHaveLength(41);
 });

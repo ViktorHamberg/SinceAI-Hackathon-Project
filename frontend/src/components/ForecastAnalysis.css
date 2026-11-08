@@ -1,0 +1,19 @@
+.analysis-grid { display: grid; gap: .85rem; margin-top: .85rem; }
+.analysis-grid > div { min-width: 0; }
+.analysis-grid .forecast-chart,
+.analysis-grid .risk-summary,
+.analysis-grid .probability-charts,
+.analysis-grid .chart-loading { margin-top: 0; }
+.analysis-grid .historical-review { border-top: 0; }
+
+@media (min-width: 1120px) {
+  .analysis-grid { grid-template-columns: minmax(0, 1.45fr) minmax(0, 1fr); align-items: start; }
+  .analysis-probabilities { grid-column: 1 / -1; }
+  .analysis-risk .risk-maxima { grid-template-columns: 1fr; gap: .55rem; margin: .8rem 0; }
+  .analysis-risk .risk-maximum { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: .15rem .6rem; align-items: center; padding-top: .55rem; }
+  .analysis-risk .risk-maximum h3 { grid-column: 1 / -1; margin-bottom: .1rem; }
+  .analysis-risk .risk-value { margin: 0; font-size: 1.125rem; }
+  .analysis-risk .risk-maximum button { grid-column: 2; grid-row: 2; }
+  .analysis-risk .risk-maximum > p:last-child,
+  .analysis-risk .risk-maximum details { grid-column: 1 / -1; margin: 0; }
+}

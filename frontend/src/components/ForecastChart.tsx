@@ -5,13 +5,26 @@ import type { ForecastPoint, HistoryResponse } from '../api/forecast';
 import { buildChartData, CHART_MARGIN, formatChartTick, PRICE_AXIS_WIDTH, QUARTER_MS, TIME_AXIS_HEIGHT } from '../forecastChart';
 import { useQuarterInspection } from '../useQuarterInspection';
 import { formatTimestamp } from '../time';
+import { formatThreeDecimals } from '../format';
 import type { DisplayZone } from '../time';
 import './ForecastChart.css';
 
 const priceAxisFormat = new Intl.NumberFormat('en-GB', { notation: 'compact', maximumFractionDigits: 1 });
+const driverLabels: Record<string, string> = {
+  renewable_production: 'Renewable production',
+  consumption: 'Consumption',
+  production: 'Production',
+  cross_border_flows: 'Cross-border flows',
+  neighboring_markets: 'Neighbouring markets',
+  balancing_conditions: 'Balancing conditions',
+  historical_prices: 'Recent imbalance prices',
+  spot_price_conditions: 'Day-ahead spot conditions',
+  calendar_horizon: 'Calendar and delivery time',
+};
 
 function QuarterDetails({ point, zone, onStep }: { point: ForecastPoint; zone: DisplayZone; onStep: (delta: number) => void }) {
   const end = new Date(Date.parse(point.delivery_start_utc) + QUARTER_MS).toISOString().replace('.000Z', 'Z');
+  const drivers = point.top_drivers?.split(';').map((name) => driverLabels[name]).filter((name): name is string => name !== undefined) ?? [];
   return <div className="chart-selection" role="status" aria-live="polite" aria-atomic="true">
     <div className="selection-time">
       <p className="selection-label">Selected delivery · Quarter {point.step} of 40</p>
@@ -20,11 +33,17 @@ function QuarterDetails({ point, zone, onStep }: { point: ForecastPoint; zone: D
       {zone !== 'UTC' && <p className="selection-utc">UTC start: {formatTimestamp(point.delivery_start_utc, 'UTC')}</p>}
     </div>
     <dl>
-      <div><dt>P10 · Lower</dt><dd>{String(point.p10)}</dd></div>
-      <div className="selection-median"><dt>P50 · Median</dt><dd>{String(point.p50)}</dd></div>
-      <div><dt>P90 · Upper</dt><dd>{String(point.p90)}</dd></div>
+      <div><dt>P10 · Lower</dt><dd>{formatThreeDecimals(point.p10)}</dd></div>
+      <div className="selection-median"><dt>P50 · Median</dt><dd>{formatThreeDecimals(point.p50)}</dd></div>
+      <div><dt>P90 · Upper</dt><dd>{formatThreeDecimals(point.p90)}</dd></div>
     </dl>
     <p className="selection-unit">EUR/MWh</p>
+    <div className="selection-drivers">
+      <h3>P50 model contributions</h3>
+      {drivers.length > 0 ? <ol>{drivers.map((label) => <li key={label}>{label}</li>)}</ol>
+        : <p>No verified contribution labels for this quarter.</p>}
+      <p>Ranked model categories for the median price. They do not explain direction or spike probabilities.</p>
+    </div>
     <div className="chart-navigation" role="group" aria-label="Delivery inspection">
       <button type="button" disabled={point.step === 1} onClick={() => onStep(-1)} aria-label="Previous quarter">Previous</button>
       <button type="button" disabled={point.step === 40} onClick={() => onStep(1)} aria-label="Next quarter">Next</button>
@@ -52,7 +71,7 @@ export default function ForecastChart({ points, zone, selectedIndex, onSelect, h
         {history && <li><span className="legend-observed" aria-hidden="true" />Observed price · retrospective</li>}
       </ul>
     </div>
-    <p className="chart-help" id="chart-help">Hover or tap a delivery for exact values below. Keyboard: Tab to the chart, then use Left and Right arrows. Home and End select the first and last quarter.</p>
+    <p className="chart-help" id="chart-help">Hover or tap a delivery for values rounded to three decimals below. Keyboard: Tab to the chart, then use Left and Right arrows. Home and End select the first and last quarter.</p>
     <div className="chart-canvas" role="application" tabIndex={0} aria-label="Ten-hour imbalance price forecast" aria-describedby="chart-help"
       {...inspection}>
       <ResponsiveContainer width="100%" height="100%" debounce={50}>

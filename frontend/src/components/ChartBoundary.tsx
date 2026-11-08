@@ -7,7 +7,7 @@ export default class ChartBoundary extends Component<{ children: ReactNode; titl
   render() {
     if (this.state.failed) return <section className="feedback feedback-error" role="alert">
       <h2>{this.props.title ?? 'Price chart unavailable'}</h2>
-      <p>{this.props.message ?? 'Open “View all 40 forecast quarters” below for the full price table. Reload the page to try loading the chart again.'}</p>
+      <p>{this.props.message ?? 'Open Raw Data for all 40 forecast quarters. Reload the page to try loading the chart again.'}</p>
       {this.props.recovery}
     </section>;
     return this.props.children;

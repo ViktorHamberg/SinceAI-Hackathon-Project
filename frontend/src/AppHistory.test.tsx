@@ -14,16 +14,16 @@ it('keeps comparison opt-in, follows selected origins and quarters, and switches
   });
   vi.stubGlobal('fetch', fetch);
   render(<App />);
-  await screen.findByRole('table');
+  await screen.findByRole('heading', { name: '10-hour price outlook' });
   const user = userEvent.setup();
   const toggle = await screen.findByRole('button', { name: 'Show actual outcomes' });
   expect(toggle).toHaveAttribute('aria-pressed', 'false');
   expect(fetch.mock.calls.some(([url]) => url.startsWith('/api/history'))).toBe(false);
-  const originalTable = screen.getByRole('table').textContent;
+  const originalForecast = screen.getByRole('heading', { name: '10-hour price outlook' }).textContent;
   toggle.focus(); await user.keyboard(' ');
   const review = await screen.findByRole('region', { name: 'Retrospective comparison' });
   await within(review).findByText('3 of 40 quarters');
-  expect(screen.getByRole('table').textContent).toBe(originalTable);
+  expect(screen.getByRole('heading', { name: '10-hour price outlook' }).textContent).toBe(originalForecast);
   expect(await screen.findByRole('list', { name: 'Chart legend' })).toHaveTextContent('Observed price · retrospective');
   await user.selectOptions(screen.getByRole('combobox', { name: 'Inspect delivery quarter' }), '39');
   expect(within(review).getByRole('status')).toHaveTextContent('Observed quarter 40');
@@ -65,8 +65,9 @@ it('ignores obsolete history even when the transport disregards abort, and rejec
   changedRun.run_id = '00000000-0000-4000-8000-000000000099';
   await act(async () => pending[1].resolve(jsonResponse(changedRun)));
   expect(await screen.findByRole('alert')).toHaveTextContent('did not match this forecast');
-  await user.click(screen.getByText('View all 40 forecast quarters'));
+  await user.click(screen.getByRole('link', { name: 'Raw Data' }));
   expect(screen.getByRole('table')).toBeVisible();
+  await user.click(screen.getByRole('link', { name: 'Forecast' }));
   expect(screen.getByRole('list', { name: 'Chart legend' })).not.toHaveTextContent('Observed price');
 });
 
@@ -81,10 +82,11 @@ it('retains actual-outcome controls, metrics and exact quarter inspection if plo
   await user.click(screen.getByRole('button', { name: 'Show actual outcomes' }));
   const review = await screen.findByRole('region', { name: 'Retrospective comparison' });
   await within(review).findByText('3 of 40 quarters');
-  await user.click(screen.getByText('View all 40 forecast quarters'));
+  await user.click(screen.getByRole('link', { name: 'Raw Data' }));
   expect(screen.getByRole('table')).toBeVisible();
+  await user.click(screen.getByRole('link', { name: 'Forecast' }));
   await user.selectOptions(screen.getByRole('combobox', { name: 'Inspect delivery quarter' }), '2');
-  expect(within(review).getByText('200 EUR/MWh')).toBeVisible();
+  expect(within(review).getByText('200.000 EUR/MWh')).toBeVisible();
   expect(within(review).getByText('No dominating mFRR direction')).toBeVisible();
   expect(screen.queryByText('INVENTED_PLOT_FAILURE')).not.toBeInTheDocument();
 });

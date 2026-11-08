@@ -4,9 +4,8 @@ import { directionSeries, formatProbability, highestDirections, spikeSeries } fr
 import type { ForecastSummary } from '../forecastSummary';
 import { formatTimestamp } from '../time';
 import type { DisplayZone } from '../time';
+import { formatThreeDecimals } from '../format';
 import './RiskSummary.css';
-
-const priceFormat = new Intl.NumberFormat('en-GB', { maximumFractionDigits: 2 });
 
 const MaximumSummary = memo(function MaximumSummary({ title, maximum, unit, points, zone, onSelect }: {
   title: string; maximum: ForecastSummary['high']; unit: 'probability' | 'price';
@@ -15,7 +14,7 @@ const MaximumSummary = memo(function MaximumSummary({ title, maximum, unit, poin
   const first = maximum.indices[0];
   return <article className="risk-maximum" aria-label={title}>
     <h3>{title}</h3>
-    <p className="risk-value">{unit === 'probability' ? formatProbability(maximum.value) : `${priceFormat.format(maximum.value)} EUR/MWh`}</p>
+    <p className="risk-value">{unit === 'probability' ? formatProbability(maximum.value) : `${formatThreeDecimals(maximum.value)} EUR/MWh`}</p>
     <button type="button" onClick={() => onSelect(first)}>Inspect quarter {first + 1}<span>{formatTimestamp(points[first].delivery_start_utc, zone)}</span></button>
     {maximum.indices.length === points.length ? <p>All {points.length} quarters share this value.</p>
       : maximum.indices.length > 1 ? <details><summary>{maximum.indices.length} quarters tied for this maximum</summary>
@@ -46,15 +45,15 @@ export default function RiskSummary({ points, summary, selectedIndex, zone, onSe
       <dl className="risk-probabilities">{[...directionSeries, ...spikeSeries].map((series) => <div key={series.key}>
         <dt>{series.label}</dt><dd>{formatProbability(selected[series.key])}</dd>
       </div>)}</dl>
-      <p>P10–P90 width: <strong>{priceFormat.format(selected.p90 - selected.p10)} EUR/MWh</strong> · P90 minus P10.</p>
-      <details className="risk-exact"><summary>Exact model probabilities (0–1)</summary>
-        <dl>{[...directionSeries, ...spikeSeries].map((series) => <div key={series.key}><dt>{series.label}</dt><dd>{String(selected[series.key])}</dd></div>)}</dl>
+      <p>P10–P90 width: <strong>{formatThreeDecimals(selected.p90 - selected.p10)} EUR/MWh</strong> · P90 minus P10.</p>
+      <details className="risk-exact"><summary>Model probabilities (0–1, three decimals)</summary>
+        <dl>{[...directionSeries, ...spikeSeries].map((series) => <div key={series.key}><dt>{series.label}</dt><dd>{formatThreeDecimals(selected[series.key])}</dd></div>)}</dl>
       </details>
     </div>
     <div className="risk-definitions">
       <p>Direction means dominating mFRR balancing regulation, not whether prices rise or fall.</p>
       <p>High spike: imbalance price strictly above spot + €50/MWh. Low spike: strictly below spot − €50/MWh.</p>
-      <p>Percentages and widths are rounded for reading; exact model probabilities are available above. These summaries describe forecasts, not model drivers or causes.</p>
+      <p>Displayed values are rounded for reading; calculations use the original forecast values. These summaries describe forecasts, not model drivers or causes.</p>
     </div>
   </section>;
 }

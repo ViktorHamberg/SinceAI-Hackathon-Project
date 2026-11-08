@@ -5,16 +5,16 @@ import RiskSummary from './RiskSummary';
 import { summarizeForecast } from '../forecastSummary';
 import { fixture } from '../test/fixture';
 
-it('shows flat maxima, honest event definitions and exact selected probabilities', async () => {
+it('shows flat maxima, honest event definitions and rounded selected probabilities', async () => {
   const points = fixture().points;
   render(<RiskSummary points={points} summary={summarizeForecast(points)} selectedIndex={0} zone="Europe/Helsinki" onSelect={vi.fn()} />);
   expect(screen.getAllByText('All 40 quarters share this value.')).toHaveLength(3);
   expect(screen.getByText(/Highest direction probability:/)).toHaveTextContent('Down regulation');
   expect(screen.getByText(/not whether prices rise or fall/)).toBeVisible();
   expect(screen.getByText(/not to an event anywhere across the ten hours/)).toBeVisible();
-  await userEvent.click(screen.getByText('Exact model probabilities (0–1)'));
-  expect(screen.getByText('0.4')).toBeVisible();
-  expect(screen.getByText('0.5')).toBeVisible();
+  await userEvent.click(screen.getByText('Model probabilities (0–1, three decimals)'));
+  expect(screen.getByText('0.400')).toBeVisible();
+  expect(screen.getByText('0.500')).toBeVisible();
   expect(screen.queryByText(/strong buy|strong sell/i)).not.toBeInTheDocument();
 });
 

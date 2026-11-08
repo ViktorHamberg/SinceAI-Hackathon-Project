@@ -1,6 +1,7 @@
 import type { ForecastPoint } from '../api/forecast';
 import { formatTimestamp } from '../time';
 import type { DisplayZone } from '../time';
+import { formatThreeDecimals } from '../format';
 import './ForecastTable.css';
 
 export default function ForecastTable({ points, zone = 'Europe/Helsinki' }: { points: ForecastPoint[]; zone?: DisplayZone }) {
@@ -30,9 +31,9 @@ export default function ForecastTable({ points, zone = 'Europe/Helsinki' }: { po
               <td><time dateTime={point.delivery_start_utc}>
                 {formatTimestamp(point.delivery_start_utc, zone)}
               </time></td>
-              <td className="number">{String(point.p10)}</td>
-              <td className="number median">{String(point.p50)}</td>
-              <td className="number">{String(point.p90)}</td>
+              <td className="number">{formatThreeDecimals(point.p10)}</td>
+              <td className="number median">{formatThreeDecimals(point.p50)}</td>
+              <td className="number">{formatThreeDecimals(point.p90)}</td>
             </tr>
           ))}</tbody>
         </table>
