@@ -1,0 +1,12 @@
+.price-drivers { margin-top: 1rem; padding: 1.25rem; background: var(--paper); border: 1px solid var(--line); }
+.price-drivers h2 { margin: 0 0 .6rem; font-size: 1.25rem; letter-spacing: -.025em; }
+.price-drivers-intro, .price-drivers-note { max-width: 85ch; color: var(--muted); font-size: .875rem; line-height: 1.6; }
+.price-drivers-selection { display: flex; flex-direction: column; align-items: flex-start; gap: .5rem; margin: 1.25rem 0; font-size: .875rem; }
+.price-drivers-selection select { max-width: 100%; min-height: 44px; padding: .6rem; border: 1px solid var(--control-line); background: var(--paper); color: var(--ink); font: inherit; }
+.price-drivers-list { list-style: none; counter-reset: driver; padding: 0; margin: 1.5rem 0; }
+.price-drivers-list li { counter-increment: driver; display: grid; grid-template-columns: 2rem minmax(0, 1fr); column-gap: .75rem; padding: 1rem 0; border-top: 1px solid var(--line); }
+.price-drivers-list li::before { content: counter(driver, decimal-leading-zero); grid-row: 1 / 3; color: #945209; font-weight: 650; font-variant-numeric: tabular-nums; }
+.price-drivers-list h3 { margin: 0 0 .4rem; font-size: 1rem; font-weight: 650; }
+.price-drivers-list p { grid-column: 2; max-width: 75ch; margin: 0; font-size: .875rem; line-height: 1.6; }
+.price-drivers-empty { padding: 1rem 0; color: var(--muted); }
+.price-drivers-note { border-top: 1px solid var(--line); padding-top: 1rem; margin-bottom: 0; }

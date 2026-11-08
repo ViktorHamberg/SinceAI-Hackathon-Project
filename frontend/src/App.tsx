@@ -5,13 +5,14 @@ import type { ForecastResponse, OriginsResponse } from './api/forecast';
 import ForecastTable from './components/ForecastTable';
 import ForecastAnalysis from './components/ForecastAnalysis';
 import OriginSelector from './components/OriginSelector';
+import PriceDrivers from './components/PriceDrivers';
 import { deliveryWindowEnd, formatTimestamp } from './time';
 import type { DisplayZone } from './time';
 import './App.css';
 
 type LoadState = { status: 'loading' } | { status: 'error'; message: string } | { status: 'ready'; forecast: ForecastResponse };
 type CatalogState = { status: 'loading' } | { status: 'error' } | { status: 'ready'; catalog: OriginsResponse };
-const views = ['forecast', 'view-2', 'view-3', 'view-4', 'view-5'] as const;
+const views = ['forecast', 'view-2', 'view-3'] as const;
 type View = typeof views[number];
 
 function currentView(): View {
@@ -100,10 +101,10 @@ export default function App() {
       <a className="skip-link" href="#forecast-content">Skip to content</a>
       <header className="app-header">
         <div className="header-inner">
-          <div className="brand-name">Turku Energia<span>Since AI 2026 challenge</span></div>
+          <div className="brand-name">Castergy Insights<span>Turku Energia · Since AI 2026</span></div>
           <nav className="view-navigation" aria-label="Application views">
-            {views.map((item, index) => <a key={item} href={`?view=${item}`} onClick={(event) => navigateView(event, item)} aria-current={view === item ? 'page' : undefined}>
-              {item === 'forecast' ? 'Forecast' : item === 'view-2' ? 'Price Drivers' : item === 'view-3' ? 'Raw Data' : `View ${index + 1}`}
+            {views.map((item) => <a key={item} href={`?view=${item}`} onClick={(event) => navigateView(event, item)} aria-current={view === item ? 'page' : undefined}>
+              {item === 'forecast' ? 'Forecast' : item === 'view-2' ? 'Price Drivers' : 'Raw Data'}
             </a>)}
           </nav>
           <span className="workspace-name">Finnish electricity markets</span>
@@ -111,16 +112,11 @@ export default function App() {
       </header>
 
       <main id="forecast-content" className="workspace" tabIndex={-1}>
-        {view !== 'forecast' && view !== 'view-3' && <section className="empty-view" aria-labelledby="empty-view-heading">
-          <p className="workspace-context">Historical replay / Finland</p>
-          <h1 id="empty-view-heading">{view === 'view-2' ? 'Price Drivers' : `View ${views.indexOf(view) + 1}`}</h1>
-          <p>This view is ready for future features.</p>
-        </section>}
-        <div hidden={view !== 'forecast' && view !== 'view-3'}>
+        <div>
         <div className="workspace-heading">
           <div>
             <p className="workspace-context">Historical replay / Finland</p>
-            <h1>{view === 'view-3' ? 'Raw Data' : 'Imbalance price forecast'}</h1>
+            <h1>{view === 'view-3' ? 'Raw Data' : view === 'view-2' ? 'Price Drivers' : 'Imbalance price forecast'}</h1>
           </div>
           <button className="reload-button" type="button" aria-disabled={state.status === 'loading'} onClick={reload}>
             {state.status === 'error' ? 'Retry connection' : 'Reload forecast'}
@@ -169,6 +165,8 @@ export default function App() {
             <ForecastAnalysis key={`analysis/${state.forecast.run_id}/${state.forecast.forecast_origin_utc}`} forecast={state.forecast} zone={zone}
               comparisonEnabled={comparisonEnabled} onComparisonEnabled={setComparisonEnabled} />
           </div>
+          {view === 'view-2' && <PriceDrivers key={`drivers/${state.forecast.run_id}/${state.forecast.forecast_origin_utc}`}
+            points={state.forecast.points} zone={zone} />}
           {view === 'view-3' && <div className="raw-data-panel">
             <ForecastTable key={`table/${state.forecast.run_id}/${state.forecast.forecast_origin_utc}`} points={state.forecast.points} zone={zone} />
           </div>}

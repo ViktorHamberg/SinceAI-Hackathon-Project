@@ -256,18 +256,16 @@ already tracked files. Ignore patterns cannot prevent leaks in tracked content.
 
 ## Select cached historical forecasts (Step 3A)
 
-The default selection is deliberately limited to these six hourly origins:
+The default selection contains 28 daily origins, at midnight Helsinki time from
+7 September through 4 October 2026 inclusive (UTC+3 throughout this interval).
+The first/default origin is `2026-09-06T21:00:00Z`; the last is
+`2026-10-03T21:00:00Z`. The service permits up to 28 prepared origins.
 
-| UTC origin | Helsinki origin (UTC+3) |
-|---|---|
-| `2026-09-06T21:00:00Z` | 7 September 00:00; default |
-| `2026-09-06T22:00:00Z` | 7 September 01:00 |
-| `2026-09-07T03:00:00Z` | 7 September 06:00 |
-| `2026-09-07T21:00:00Z` | 8 September 00:00 |
-| `2026-09-13T21:00:00Z` | 14 September 00:00 |
-| `2026-10-03T21:00:00Z` | 4 October 00:00 |
+Restart the backend to prepare this expanded selection. The compatible fitted-model
+cache is reused, but generating the additional forecasts still takes time. No
+training is needed when that cache is available and compatible.
 
-This is a small replay selection, not every hourly validation origin. Nearby origins
+This is a daily replay selection, not every hourly validation origin. Nearby origins
 have overlapping delivery windows; the same delivery can have a different forecast
 depending on when it was issued. No origins are selected using realized errors or
 actual outcomes. All use `RunConfig.validation()` with the original pre-validation

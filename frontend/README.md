@@ -6,7 +6,7 @@ Both views use the same forecast selection and timezone controls. Model/run deta
 remain expandable on the Forecast view. No forecast calculations changed in this pass.
 
 Steps 2A, 2B, 3B, 4 and 5B connect React/TypeScript/Vite to the local FastAPI service. Choose
-one of six cached historical forecasts: all 40 quarter-hours, P10/P50/P90 in EUR/MWh,
+one of 28 daily cached historical forecasts: all 40 quarter-hours, P10/P50/P90 in EUR/MWh,
 Helsinki timestamps with explicit offsets, and model/run identity. The Forecast view
 shows the median/P10-to-P90 chart, direction and exceptional-price probability
 timelines, risk summaries, and verified P50 contribution categories for the selected
@@ -213,7 +213,7 @@ Challenge source licences and restrictions remain in
 The issue-time panel selects when a forecast was issued. Its Previous/Next **forecast**
 buttons are distinct from the chart's Previous/Next **quarter** inspection controls.
 Only dates returned by the backend catalog are available; the initial selection uses
-the catalog default. See [the backend guide](../backend/README.md) for the six dates.
+the catalog default. See [the backend guide](../backend/README.md) for the daily selection.
 
 The timeline uses a native range input. Marks are spaced by elapsed UTC time across
 the full available span, rather than being placed at equal distances. The nearby first
