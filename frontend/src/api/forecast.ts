@@ -150,7 +150,7 @@ export function parseForecast(value: unknown): ForecastResponse {
 export function parseOrigins(value: unknown): OriginsResponse {
   const catalog = objectWithKeys(value, [...identityKeys, 'default_origin_utc', 'origins']);
   validateIdentity(catalog);
-  requireValid(Array.isArray(catalog.origins) && catalog.origins.length >= 1 && catalog.origins.length <= 6);
+  requireValid(Array.isArray(catalog.origins) && catalog.origins.length >= 1 && catalog.origins.length <= 28);
   let previous = -Infinity;
   for (const origin of catalog.origins) {
     const time = timestamp(origin);

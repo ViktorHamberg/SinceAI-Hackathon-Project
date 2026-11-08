@@ -6,6 +6,18 @@ import { originsFixture } from '../test/fixture';
 
 const origins = originsFixture().origins;
 const first = origins[0];
+
+it('renders all 28 daily marks and allows selection of the last forecast', async () => {
+  const daily = Array.from({ length: 28 }, (_, day) =>
+    new Date(Date.parse(first) + day * 86_400_000).toISOString().replace('.000Z', 'Z'));
+  const onSelect = vi.fn();
+  const { container } = render(<OriginSelector origins={daily} selectedOrigin={daily[0]}
+    displayedOrigin={daily[0]} loading={false} zone="Europe/Helsinki" onSelect={onSelect} />);
+  expect(container.querySelectorAll('[data-origin]')).toHaveLength(28);
+  expect(screen.getByRole('combobox', { name: 'Choose exact issue time' }).querySelectorAll('option')).toHaveLength(28);
+  await userEvent.setup().selectOptions(screen.getByRole('combobox', { name: 'Choose exact issue time' }), daily[27]);
+  expect(onSelect).toHaveBeenCalledWith(daily[27]);
+});
 function setup() {
   const onSelect = vi.fn();
   const props = { origins, selectedOrigin: first, displayedOrigin: first, loading: false, zone: 'Europe/Helsinki' as const, onSelect };

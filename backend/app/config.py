@@ -7,8 +7,8 @@ from pathlib import Path
 from forecast_engine import RunConfig
 
 DEFAULT_ORIGIN = datetime(2026, 9, 6, 21, tzinfo=timezone.utc)
-DEFAULT_ORIGINS = tuple(DEFAULT_ORIGIN + timedelta(hours=hours) for hours in (0, 1, 6, 24, 168, 648))
-MAX_CACHED_ORIGINS = 6
+DEFAULT_ORIGINS = tuple(DEFAULT_ORIGIN + timedelta(days=day) for day in range(28))
+MAX_CACHED_ORIGINS = 28
 
 
 @dataclass(frozen=True, slots=True)
@@ -40,7 +40,7 @@ class ForecastConfig:
                 raise ValueError("Model cache requires a separate JSON file, never source data.")
             object.__setattr__(self, "model_cache_path", cache)
         if not isinstance(self.origins, tuple) or not 1 <= len(self.origins) <= MAX_CACHED_ORIGINS:
-            raise ValueError("Configure between one and six forecast origins.")
+            raise ValueError(f"Configure between one and {MAX_CACHED_ORIGINS} forecast origins.")
         normalized = []
         for origin in self.origins:
             if not isinstance(origin, datetime) or origin != origin or origin.utcoffset() is None:

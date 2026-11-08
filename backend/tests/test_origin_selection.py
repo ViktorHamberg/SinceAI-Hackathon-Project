@@ -36,6 +36,13 @@ def synthetic_batch(origins):
 
 
 class OriginSelectionTests(unittest.TestCase):
+    def test_default_replay_has_one_origin_per_day_across_validation(self):
+        self.assertEqual(len(DEFAULT_ORIGINS), 28)
+        self.assertEqual(DEFAULT_ORIGINS[0], RunConfig.validation().fit_cutoff_utc)
+        self.assertEqual(DEFAULT_ORIGINS[-1], RunConfig.test().fit_cutoff_utc - timedelta(days=1))
+        self.assertTrue(all(later - earlier == timedelta(days=1)
+                            for earlier, later in zip(DEFAULT_ORIGINS, DEFAULT_ORIGINS[1:])))
+
     def setUp(self):
         self.config = ForecastConfig(Path("unused inputs.csv"), Path("unused spot.csv"))
         self.result = synthetic_batch(self.config.origins)
@@ -73,13 +80,17 @@ class OriginSelectionTests(unittest.TestCase):
                 self.assertEqual(point["forecast_origin_utc"], utc_text(origin))
                 self.assertEqual(point["delivery_start_utc"], utc_text(origin + timedelta(minutes=15 * (step - 1))))
                 self.assertEqual(point["p50"], -11.987654321 + index)
-        # The same delivery has a distinct forecast at the next hourly origin.
-        earlier, later = service.response(DEFAULT_ORIGINS[0]), service.response(DEFAULT_ORIGINS[1])
-        self.assertEqual(earlier["points"][4]["delivery_start_utc"], later["points"][0]["delivery_start_utc"])
-        self.assertNotEqual(earlier["points"][4]["p50"], later["points"][0]["p50"])
-        self.assertEqual(service.response(), earlier)
+        self.assertEqual(service.response(), service.response(DEFAULT_ORIGINS[0]))
         expected_bytes = sum(len(service.response_json(origin).encode()) for origin in DEFAULT_ORIGINS)
         self.assertGreater(service.cached_json_bytes, expected_bytes)
+
+    def test_explicit_nearby_origins_preserve_distinct_forecasts_for_the_same_delivery(self):
+        self.config = replace(self.config, origins=(DEFAULT_ORIGIN, DEFAULT_ORIGIN + timedelta(hours=1)))
+        self.fitted.predict.return_value = synthetic_batch(self.config.origins)
+        service = self.prepare()
+        earlier, later = (service.response(origin) for origin in self.config.origins)
+        self.assertEqual(earlier["points"][4]["delivery_start_utc"], later["points"][0]["delivery_start_utc"])
+        self.assertNotEqual(earlier["points"][4]["p50"], later["points"][0]["p50"])
 
     def test_cache_and_catalog_are_detached_and_selection_never_runs_engine_work(self):
         service = self.prepare()
@@ -99,7 +110,7 @@ class OriginSelectionTests(unittest.TestCase):
                     self.assertEqual(response.status_code, 200)
                     self.assertEqual(response.json(), json.loads(originals[index % len(DEFAULT_ORIGINS)]))
                     self.assertEqual(response.headers["cache-control"], "no-store")
-                self.assertEqual(len(client.get("/api/origins").json()["origins"]), 6)
+                self.assertEqual(len(client.get("/api/origins").json()["origins"]), len(DEFAULT_ORIGINS))
 
     def test_query_validation_is_bounded_and_sanitized(self):
         service = self.prepare()

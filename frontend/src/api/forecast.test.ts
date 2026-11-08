@@ -47,9 +47,16 @@ describe('origin catalog and selected snapshots', () => {
       { origins: ['2026-09-06T21:15:00Z'] }, { origins: ['2026-09-06T21:00:00'] },
       { default_origin_utc: catalog.origins[1] }, { fit_cutoff_utc: '2026-09-07T00:00:00Z' },
       { spot_price: 'SYNTHETIC_PRIVATE' }, { run_id: 'private source text' },
-      { origins: Array.from({ length: 7 }, (_, i) => new Date(Date.parse(catalog.origins[0]) + i * 3600_000).toISOString().replace('.000Z', 'Z')) },
+      { origins: Array.from({ length: 29 }, (_, i) => new Date(Date.parse(catalog.origins[0]) + i * 3600_000).toISOString().replace('.000Z', 'Z')) },
     ];
     for (const mutation of mutations) expect(() => parseOrigins({ ...catalog, ...mutation })).toThrow('incomplete or unsupported');
+  });
+
+  it('accepts the full daily replay catalog', () => {
+    const origins = Array.from({ length: 28 }, (_, day) =>
+      new Date(Date.parse('2026-09-06T21:00:00Z') + day * 86_400_000).toISOString().replace('.000Z', 'Z'));
+    const catalog = originsFixture(origins);
+    expect(parseOrigins(catalog).origins).toEqual(origins);
   });
 
   it('fetches the catalog and URL-encoded selected forecast without altering prices', async () => {

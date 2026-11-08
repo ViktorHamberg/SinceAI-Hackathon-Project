@@ -138,7 +138,10 @@ it('switches all displayed times by keyboard without another request or changed 
   await screen.findByRole('heading', { name: '10-hour price outlook' });
   await user.tab();
   expect(screen.getByRole('link', { name: 'Skip to content' })).toHaveFocus();
-  for (const name of ['Forecast', 'Price Drivers', 'Raw Data', 'View 4', 'View 5']) {
+  expect(screen.getByText('Castergy Insights')).toBeVisible();
+  expect(screen.queryByRole('link', { name: 'View 4' })).not.toBeInTheDocument();
+  expect(screen.queryByRole('link', { name: 'View 5' })).not.toBeInTheDocument();
+  for (const name of ['Forecast', 'Price Drivers', 'Raw Data']) {
     await user.tab();
     expect(screen.getByRole('link', { name })).toHaveFocus();
   }
