@@ -1,9 +1,11 @@
 # Backend: historical forecast service and local HTTP API
 
 The application service fits once and batch-prepares six genuine historical forecasts,
-retaining safe JSON responses for selection through the local API. It uses the existing
-persistence predictor, not an improved ML model. The frontend can select cached origins.
-Step 5A adds a separate retrospective history API; the comparison UI is Step 5B.
+retaining safe JSON responses for selection through the local API. It uses the
+spot-relative LightGBM predictor with the provisional `relative-control-v1` recipe.
+Model fitting and batch prediction happen once at startup; requests reuse cached JSON.
+The frontend can select cached origins. Step 5A adds a separate retrospective history
+API; the comparison UI is Step 5B.
 
 ## Files and responsibilities
 
@@ -120,8 +122,8 @@ The application envelope is separate from the locked challenge CSV schema:
 |---|---|
 | `schema_version` | Application JSON contract version, currently `1.0`; independent of CSV versioning. |
 | `run_id` | A new UUID for each successful preparation. Stable on retrieval, not a reproducibility hash or a fitted-model artifact ID. |
-| `model_id` | Application-selected recipe label, initially `persistence-v1`. Update it when deliberately selecting a different recipe/configuration. |
-| `predictor_id` | The fitted engine predictor's short identifier, initially `persistence`. |
+| `model_id` | Application-selected recipe label, currently `relative-control-v1`. Update it when deliberately selecting a different recipe/configuration. |
+| `predictor_id` | The fitted engine predictor's short identifier, currently `lightgbm-relative-v1`. |
 | `engine_revision` | `sha256:` fingerprint of all installed engine Python sources, including uncommitted changes. Relative filenames and raw contents are hashed in sorted order. It is not a Git commit or data hash. |
 | `generated_at_utc` | UTC wall-clock time when this response was constructed, at whole-second precision. It is not the historical forecast origin or an input publication time. |
 | `forecast_origin_utc` | Historical hourly origin represented by this snapshot. |
@@ -139,7 +141,7 @@ Driver text is filtered against an explicit approved-name set: the legacy
 `last_imbalance_price` input marker and the nine verified P50 categories listed below.
 An empty value, unknown name or mixed approved/unapproved list becomes `null`;
 arbitrary free text is never echoed. Valid lists retain engine order, with duplicate
-identifiers removed. Current persistence outputs leave both optional columns blank.
+identifiers removed. Explicitly selected Persistence outputs leave both optional columns blank.
 Valid provided cutoff values are preserved, not inferred from delivery times. The
 service rejects incomplete or invalid engine results.
 
@@ -154,10 +156,10 @@ Numeric contributions, feature values, offsets and model references remain priva
 Unavailable or zero-effect explanations remain null. The legacy persistence marker
 describes an input and does not claim a measured contribution ranking.
 
-This allowlist update passes new engine labels through cached JSON and `/api/forecast`
-when an ML predictor is supplied through the existing trusted composition hook. It
-does not select a new predictor, change the nullable string response type or add a
-frontend display. The default startup still uses persistence. Future category names
+The default spot-relative LightGBM predictor supplies verified category labels through
+cached JSON and `/api/forecast`; unavailable explanations remain null. The allowlist
+preserves the nullable string response type. Frontend rendering is a separate concern.
+Alternative predictors can still use the trusted composition hook. Future category names
 require explicit application approval and tests; do not derive the allowlist
 automatically from engine internals or permit arbitrary text.
 
@@ -469,8 +471,10 @@ macOS, from the repository root:
 ```
 
 Keep that terminal open. Wait for `Application startup complete` before requesting
-the API. Full historical calibration happens once during startup; measured startup
-was about a minute locally. Uvicorn does not serve requests while preparation runs.
+the API. Model fitting and forecast preparation happen once during startup. The earlier
+startup measurement of about a minute used Persistence; startup time for the new
+LightGBM default has not been measured. No interval-calibration step is performed here.
+Uvicorn does not serve requests while preparation runs.
 Use Ctrl+C to stop. If port 8000 is already in use, stop the other server or choose
 another local port and use that port in the URLs.
 
@@ -531,6 +535,18 @@ prepares the real forecast once, compares the HTTP response to the retained engi
 result, tests repeated retrieval and documentation, and stops its own server. It
 does not require or stop an already running port-8000 server. It prints only safe
 metadata/counts, not individual prices. Source data remains server-side.
+
+The HTTP smoke waits up to 180 seconds for startup by default. For an explicitly
+authorized real-data run, allow more time for ML preparation with
+`--startup-timeout 1200` (seconds), for example:
+
+```bash
+.venv/bin/python -W error::FutureWarning -m backend.tests.smoke_forecast_api --data-dir data --startup-timeout 1200
+```
+
+On Windows substitute `.venv\Scripts\python.exe`. The timeout must be finite and
+greater than zero; it changes only the smoke script's startup wait, not model settings
+or API request timeouts. This example is not a measurement of LightGBM startup time.
 
 HTTP testing uses `httpx2`, the supported client for the pinned Starlette version;
 plain `httpx` is deprecated in that TestClient. This choice follows the installed

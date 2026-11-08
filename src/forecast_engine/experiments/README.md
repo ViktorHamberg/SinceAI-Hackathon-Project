@@ -364,3 +364,105 @@ Registry identifiers: `renewable_production`, `consumption`, `production`,
 `spot_price_conditions`, `calendar_horizon`. Some require optional feature groups and
 will not appear with the current minimal recipe. Do not expose private numerical
 contribution records to implement this identifier-only display.
+
+## Preregistered target/feature ablations (Step 4A)
+
+`recipes.py` defines four fixed real-data configurations. They all use the original
+30-round, 15-leaf recipe, minimum 20 rows per leaf, learning rate 0.05, L2 1.0,
+seed 2026, one native CPU thread and independent per-head label eligibility:
+
+| Recipe ID | Target | Features/hypothesis |
+|---|---|---|
+| `direct-control-v1` | Direct | Original minimal features; target-mode control. |
+| `relative-control-v1` | Spot-relative | Same features/settings; target-mode control. |
+| `relative-wind-load-v1` | Spot-relative | Add published delivery wind and load forecasts. |
+| `relative-mfrr-v1` | Spot-relative | Add latest up/down mFRR prices/activations and their ages. |
+
+Four of the six shared 4A/4B recipe slots are allocated here, including both ML
+controls. Two remain for 4B. Persistence is a separate reference. Fold repetitions do
+not add recipe slots. Synthetic verification is not a real-data selection experiment.
+Solar, ramps, aFRR, production/consumption observations, neighboring/cross-border
+features, head-specific subsets, horizon groups and ensembles remain untested unless
+separately preregistered within the remaining scope/budget. No new feature definitions,
+forecast vintages, calibration or automatic model activation are introduced here.
+
+Create a plan in a fresh ignored directory before any real-data trial:
+
+```bash
+.venv/bin/python -m forecast_engine.experiments.compare plan --output-dir baseline_output/engine/step-4a-acceptance-01
+```
+
+The plan freezes hypotheses, recipe/feature settings, two existing earlier folds,
+source/tool/package fingerprints, validation-reuse acknowledgement, retention rules
+and budget allocation. Its checksum is recorded separately. Step 2C validation was
+already inspected and informed the relative-only feature ablations; this is documented
+development reuse, not a claim that validation remained untouched. Selection here
+uses only the two pre-validation assessment windows. Do not edit package sources or
+the plan while executing a registered study.
+
+For each of `fold-1` and `fold-2`, run persistence once and each of the four recipes
+once into the directory layout below. Replace the fold and recipe IDs explicitly:
+
+```bash
+.venv/bin/python -m forecast_engine.experiments.run --period fold-1 --model persistence --measure-attribution --output-dir baseline_output/engine/step-4a-acceptance-01/fold-1/persistence-v1
+.venv/bin/python -m forecast_engine.experiments.run --period fold-1 --recipe direct-control-v1 --measure-attribution --output-dir baseline_output/engine/step-4a-acceptance-01/fold-1/direct-control-v1
+```
+
+`--model` and `--recipe` are mutually exclusive; omission still selects persistence.
+`--measure-attribution` profiles prediction with cProfile and extracts only the private
+P50 driver function's cumulative time. That time is part of prediction, not an
+additional cost to add again. Prediction includes profiling overhead. Feature
+availability counts are rebuilt privately with the unchanged as-of builder and timed
+separately; no feature values are serialized. Ordinary runs without this flag retain
+their existing prediction path and do not perform the extra diagnostics.
+
+Each complete forecast is structurally validated before scoring. The measured run also
+scores exactly those forecast rows whose delivery spot was nonmissing and published
+by their own origin. It uses the validated export's timestamp spelling and numerical
+precision. When this subset equals the full grid, scores are reused explicitly; when
+empty, losses are null and counts zero. Partial subsets are diagnostic CSVs, not valid
+complete-horizon submissions. The official scorer computes all losses unchanged.
+
+After all ten runs complete:
+
+```bash
+.venv/bin/python -m forecast_engine.experiments.compare report --output-dir baseline_output/engine/step-4a-acceptance-01
+```
+
+The report checks source/recipe/artifact integrity and identical fold origins, outcome
+hashes, forecast grids and per-metric matched counts, including shared-spot cohorts.
+For pooling, it removes each fold's deliveries outside its assessment interval before
+combining forecasts and actuals. Otherwise later-fold actuals would incorrectly relabel
+an earlier fold's unscored tail. Original 40-step forecasts remain intact. Pooled
+diagnostic rows are scored with unchanged `score.py`; matched counts must equal the
+sum of the individual folds for each metric. Private pooled actuals include restricted
+spot prices and must stay ignored under the README's licensing/deletion rules.
+
+Retention requires at least a 1% pooled reduction in one of the four losses, with
+no loss worsening by more than 1% on either fold or pooled rows. Absolute tolerance
+is 0.000001, including zero-reference cases. Controls are compared with persistence;
+feature variants must pass against persistence, the relative control and the selected
+control. Passing candidates are ordered by pooled MAE, then pinball, spike Brier,
+direction Brier and recipe ID. This is a predeclared selection priority, not an official
+competition-points formula. Coverage and costs remain visible diagnostics; coverage
+alone cannot promote a recipe. If nothing passes, keep persistence. A provisional
+choice does not activate a model in the backend.
+
+`comparison/comparison.json` includes fold and pooled losses/coverage/counts, shared
+cohort results, training eligibility, feature availability, path counts, per-horizon
+diagnostics, costs, decisions and remaining budget. `comparison.md` is a short summary.
+Comparison output must be fresh; completed evidence is not overwritten. Jobs may run
+in separate local processes, but overlapping workloads are not controlled runtime
+benchmarks. Windows execution and final deployment costs need separate verification.
+
+Focused checks for the experiment changes:
+
+```bash
+.venv/bin/python -W error::FutureWarning -m unittest forecast_engine.tests.test_ablation -v
+.venv/bin/python -W error::FutureWarning -m unittest forecast_engine.tests.test_experiment_contract -v
+```
+
+The synthetic study exercises every registered recipe, both small folds, partial
+availability, official validation/scoring, pooling boundaries and tamper rejection.
+No application, original CLI, public forecast interface or dependency change is needed.
+Stop after 4A evidence and review; do not consume the reserved 4B slots or start Step 5.

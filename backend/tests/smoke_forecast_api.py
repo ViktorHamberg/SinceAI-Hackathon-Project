@@ -32,26 +32,47 @@ def _require(condition: bool) -> None:
         raise RuntimeError("HTTP acceptance check failed.")
 
 
-def main(argv=None) -> int:
+def _positive_seconds(value):
+    seconds = float(value)
+    if not math.isfinite(seconds) or seconds <= 0:
+        raise argparse.ArgumentTypeError("startup timeout must be finite and greater than zero")
+    return seconds
+
+
+def _parse_args(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--data-dir", type=Path, default=None)
-    parser.add_argument("--include-history", action="store_true",
-                        help="Also verify retrospective validation outcomes using only the three approved columns.")
-    args = parser.parse_args(argv)
+    parser.add_argument(
+        "--startup-timeout",
+        type=_positive_seconds,
+        default=180.0,
+        metavar="SECONDS",
+        help="maximum startup wait in seconds (default: 180)",
+    )
+    parser.add_argument(
+        "--include-history",
+        action="store_true",
+        help="Also verify retrospective validation outcomes using only the three approved columns.",
+    )
+    return parser.parse_args(argv)
+
+
+def main(argv=None) -> int:
+    args = _parse_args(argv)
     server, thread, listener = None, None, None
     stage = "configuration"
     report = None
     try:
         import pandas as pd
         import uvicorn
-        from forecast_engine.models import FittedPersistence, PersistencePredictor
+        from forecast_engine.models.lightgbm import FittedLightGBM, LightGBMPredictor
 
         config = ForecastConfig.from_data_dir(args.data_dir)
         history_config = HistoryConfig.from_data_dir(args.data_dir) if args.include_history else None
         source_paths = [config.inputs_path, config.spot_path]
         before = [hashlib.sha256(path.read_bytes()).hexdigest() for path in source_paths]
         read_csv = pd.read_csv
-        fit, predict = PersistencePredictor.fit, FittedPersistence.predict
+        fit, predict = LightGBMPredictor.fit, FittedLightGBM.predict
         reads, services = [], []
 
         def guarded_read(path, *args, **kwargs):
@@ -79,11 +100,11 @@ def main(argv=None) -> int:
         stage = "server startup"
         started = time.perf_counter()
         with patch("pandas.read_csv", side_effect=guarded_read), \
-             patch.object(PersistencePredictor, "fit", autospec=True, side_effect=fit) as fit_calls, \
-             patch.object(FittedPersistence, "predict", autospec=True, side_effect=predict) as predict_calls:
+             patch.object(LightGBMPredictor, "fit", autospec=True, side_effect=fit) as fit_calls, \
+             patch.object(FittedLightGBM, "predict", autospec=True, side_effect=predict) as predict_calls:
             thread = threading.Thread(target=server.run, kwargs={"sockets": [listener]}, daemon=True)
             thread.start()
-            deadline = started + 180
+            deadline = started + args.startup_timeout
             while not server.started:
                 _require(thread.is_alive() and time.perf_counter() < deadline)
                 time.sleep(.05)
@@ -132,9 +153,9 @@ def main(argv=None) -> int:
                     _require(point["step"] == row.step)
                     for name in ("p10", "p50", "p90", "p_up", "p_down", "p_none", "p_spike_high", "p_spike_low"):
                         _require(point[name] == getattr(row, name))
-                _require("spot_price" not in body and "dependencies" not in body)
+                _require('"spot_price":' not in body and "dependencies" not in body)
                 _require(get(path) == body)
-            _require("spot_price" not in raw and "dependencies" not in raw)
+            _require('"spot_price":' not in raw and "dependencies" not in raw)
             for _ in range(3):
                 _require(json.loads(get("/api/forecast")) == payload)
             _require(fit_calls.call_count == predict_calls.call_count == 1)

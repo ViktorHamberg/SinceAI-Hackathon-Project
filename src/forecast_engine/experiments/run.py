@@ -158,8 +158,32 @@ def _path_counts(data, origins, result, configuration):
     return counts
 
 
+def _spot_mask(data, forecasts):
+    """Origin-available exact delivery spot; no outcome information selects rows."""
+    import pandas as pd
+
+    if data.spot is None:
+        return pd.Series(False, index=forecasts.index)
+    spot = data.spot.loc[data.spot.series_id.eq("fi_spot_price") & data.spot.value.notna(),
+                         ["timestamp_utc", "first_usable_origin_utc"]]
+    joined = forecasts[["forecast_origin_utc", "delivery_start_utc"]].merge(
+        spot, how="left", left_on="delivery_start_utc", right_on="timestamp_utc", validate="many_to_one")
+    return pd.Series(joined.first_usable_origin_utc.le(joined.forecast_origin_utc).to_numpy(), index=forecasts.index)
+
+
+def _diagnostics(data, fitted, origins, configuration):
+    """Rebuild private features for count-only diagnostics, timed separately."""
+    if configuration.get("kind") != "lightgbm":
+        return {}
+    from ..features import build_features
+
+    features = build_features(fitted._input_view(data), origins=origins, feature_names=fitted._feature_names)
+    return {name: {"available": int(features.frame[name].notna().sum()),
+                   "missing": int(features.frame[name].isna().sum())} for name in fitted._feature_names}
+
+
 def run_experiment(*, starter_dir, data_dir, output_dir, fold=None,
-                   predictor=None, recipe_id=None):
+                   predictor=None, recipe_id=None, measure_attribution=False):
     """Run validation (fold=None) or a Step 1B ChronologicalFold.
 
     A custom Predictor needs an explicit safe recipe identifier; it uses the existing
@@ -171,6 +195,8 @@ def run_experiment(*, starter_dir, data_dir, output_dir, fold=None,
 
     if fold is not None and not isinstance(fold, ChronologicalFold):
         raise ExperimentError("experiment requires a chronological fold or validation")
+    if not isinstance(measure_attribution, bool):
+        raise ExperimentError("measurement option must be boolean")
     if predictor is None:
         predictor = PersistencePredictor()
         recipe_id = recipe_id or "persistence-v1"
@@ -232,11 +258,27 @@ def run_experiment(*, starter_dir, data_dir, output_dir, fold=None,
         manifest["model_configuration"] = _model_configuration(predictor, fitted)
         manifest["stage"] = "predict"
         stage_start = time.perf_counter()
-        result = forecast(fitted, data, origins=origins)
+        if measure_attribution:
+            import cProfile
+            from ..explainability.drivers import _driver_labels
+
+            profiler = cProfile.Profile()
+            result = profiler.runcall(forecast, fitted, data, origins=origins)
+            manifest["timings"]["attribution"] = sum(
+                item.totaltime for item in profiler.getstats() if item.code is _driver_labels.__code__)
+        else:
+            result = forecast(fitted, data, origins=origins)
         manifest["timings"]["predict"] = time.perf_counter() - stage_start
+        manifest["measurement"] = {"attribution_profiled": measure_attribution,
+                                   "attribution_is_part_of_predict": True,
+                                   "profiler_overhead_in_predict": measure_attribution}
         manifest["provenance"] = evaluation._safe_provenance(result)
         manifest["forecast_rows"] = len(result.forecasts)
         manifest["price_paths"] = _path_counts(data, origins, result, manifest["model_configuration"])
+        if measure_attribution:
+            stage_start = time.perf_counter()
+            manifest["feature_availability"] = _diagnostics(data, fitted, origins, manifest["model_configuration"])
+            manifest["timings"]["feature_diagnostics"] = time.perf_counter() - stage_start
         manifest["stage"] = "export"
         submission = export_forecasts(result.forecasts, output / "forecast_backtest.csv", origins=origins)
         origins_path = output / "forecast_origins.csv"
@@ -267,6 +309,32 @@ def run_experiment(*, starter_dir, data_dir, output_dir, fold=None,
             raise ValueError("scorer returned mismatched row count")
         for name in ("score_summary.csv", "score_summary.md", "score_by_horizon.csv"):
             manifest["artifacts"][name] = str(score_dir / name)
+        if measure_attribution:
+            manifest["stage"] = "shared_spot_scoring"
+            mask = _spot_mask(data, result.forecasts)
+            keys = result.forecasts.loc[mask, ["forecast_origin_utc", "step"]].to_csv(index=False)
+            import hashlib
+
+            manifest["shared_spot"] = {"forecast_rows": int(mask.sum()),
+                                       "row_keys_sha256": hashlib.sha256(keys.encode()).hexdigest()}
+            if mask.all():
+                manifest["shared_spot"].update(metrics=manifest["metrics"], identical_to_complete=True)
+            elif not mask.any():
+                manifest["shared_spot"].update(metrics={**{k: None for k in (*METRICS, "coverage_p10_p90")},
+                                                        **{k: 0 for k in COUNTS}}, identical_to_complete=False)
+            else:
+                subset = output / "shared_spot_forecasts.csv"
+                # Reuse validated CSV spelling/precision, including strict UTC text.
+                exported = pd.read_csv(submission, dtype=str, keep_default_na=False)
+                exported.loc[mask.to_numpy()].to_csv(subset, index=False, lineterminator="\n")
+                subset_dir = output / "shared_spot_score"
+                evaluation._run_tool("shared_spot_scoring", starter / "score.py", ["--submission", subset,
+                                     "--actuals", actuals, "--spike-margin", "50", "--output-dir", subset_dir],
+                                     starter, output, manifest)
+                manifest["shared_spot"].update(metrics=_read_scores(subset_dir / "score_summary.csv"),
+                                               identical_to_complete=False)
+                manifest["artifacts"].update(shared_spot_forecasts=str(subset),
+                    shared_spot_score=str(subset_dir / "score_summary.csv"))
         manifest["stage"] = "integrity"
         for record in manifest["consumed_files"].values():
             if evaluation._sha256(record["path"]) != record["sha256"]:
@@ -295,18 +363,25 @@ class _Parser(argparse.ArgumentParser):
 def main(argv=None):
     parser = _Parser(description="Private chronological experiment using unchanged official tools.")
     parser.add_argument("--period", choices=("validation", "fold-1", "fold-2"), default="validation")
-    parser.add_argument("--model", choices=("persistence", "lightgbm-direct", "lightgbm-relative"),
-                        default="persistence")
+    selection = parser.add_mutually_exclusive_group()
+    selection.add_argument("--model", choices=("persistence", "lightgbm-direct", "lightgbm-relative"))
+    from .recipes import RECIPES
+    selection.add_argument("--recipe", choices=tuple(RECIPES))
+    parser.add_argument("--measure-attribution", action="store_true")
     parser.add_argument("--starter-dir", type=Path, default=Path("."))
     parser.add_argument("--data-dir", type=Path, default=Path("data"))
     parser.add_argument("--output-dir", type=Path, required=True)
     options = parser.parse_args(argv)
     fold = None if options.period == "validation" else expanding_window_folds()[int(options.period[-1]) - 1]
     try:
-        predictor, recipe_id = _select_model(options.model)
+        if options.recipe:
+            predictor, recipe_id = RECIPES[options.recipe].predictor(), options.recipe
+        else:
+            predictor, recipe_id = _select_model(options.model or "persistence")
         manifest = run_experiment(starter_dir=options.starter_dir, data_dir=options.data_dir,
                                   output_dir=options.output_dir, fold=fold,
-                                  predictor=predictor, recipe_id=recipe_id)
+                                  predictor=predictor, recipe_id=recipe_id,
+                                  measure_attribution=options.measure_attribution)
     except Exception as error:
         print(f"Experiment failed ({type(error).__name__}); inspect the safe run manifest if created.", file=sys.stderr)
         return 1

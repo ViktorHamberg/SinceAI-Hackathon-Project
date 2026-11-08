@@ -13,7 +13,7 @@ from uuid import uuid4
 
 import forecast_engine
 from forecast_engine import RunConfig, forecast, load_inputs
-from forecast_engine.models import PersistencePredictor
+from forecast_engine.models.lightgbm import LightGBMPredictor
 
 from .config import ForecastConfig
 from .schemas import OriginsResponse, build_response, utc_text
@@ -94,8 +94,8 @@ def prepare_forecast(
     try:
         config = config if config is not None else ForecastConfig.from_data_dir()
         if predictor is None:
-            predictor = PersistencePredictor()
-            model_id = model_id or "persistence-v1"
+            predictor = LightGBMPredictor(target_mode="spot_relative")
+            model_id = model_id or "relative-control-v1"
         elif model_id is None:
             raise ValueError("An alternative predictor requires a model recipe identifier.")
         run_config = RunConfig.validation()

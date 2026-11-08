@@ -714,20 +714,78 @@ next substep. Step 3 is complete only when both substeps are accepted.
 
 ## Step 4. Improve the same architecture through controlled experiments
 
-**Objective and implementation:** Use a bounded hypothesis table covering direct versus
-relative targets, optional feature groups, regularization/tree/iteration settings,
-horizon interactions and head-specific feature sets. Start with no more than six
-recorded candidate recipes; expanding the budget requires justification and approval
-as additional experiment scope. Avoid a Cartesian search. Choose configurations on
-pre-validation expanding folds and report all four losses, coverage, availability,
-fallback rates, per-horizon results and compute/attribution costs.
+Split this milestone into two sequential, independently testable substeps. Implement
+only the explicitly authorized substep, provide its review handoff and stop. Approval
+of 4A does not authorize 4B or Step 5. Both substeps reuse the permanent architecture,
+existing chronological folds and unchanged official scoring tools.
 
-Test feature groups in small ablations: renewable/load forecasts and delivery ramps;
-balancing observations; production/consumption; then cross-border and neighboring
-markets. Both sides of every derived difference must be available. No undocumented
-vintages, future filling or automatic zero interpretation of sparse aFRR. Compare target
-modes both on shared eligible rows and complete horizons to expose missing-spot bias.
-Consider horizon groups only after pooled diagnostics show a repeatable weakness.
+**Shared experiment budget:** Use no more than six distinct learned candidate recipes
+across 4A and 4B combined, including the direct/relative ML controls, discarded variants
+and later refinements. Persistence is a separate comparison baseline. Evaluating the
+same fixed recipe on multiple folds does not consume extra recipe slots. Record the
+allocation before the first experiment and reserve capacity for promising 4B refinements.
+Expanding the budget requires justification and explicit approval as additional scope;
+do not reset it between substeps or hide extra configurations as exploratory runs.
+
+### Step 4A. Compare targets and feature groups
+
+**Objective and implementation:** Record a bounded hypothesis table and the numerical
+retention/tradeoff rules before running comparisons. Keep tree, iteration,
+regularization and seed settings fixed while comparing direct/relative targets and
+small feature-group ablations. Choose configurations using pre-validation expanding
+folds, not repeated inspection of official validation outcomes. Record any existing
+validation reuse under the standing chronological evaluation rules.
+
+Prioritize feature groups within the shared budget: renewable/load forecasts and
+delivery ramps; balancing observations; production/consumption; then cross-border and
+neighboring markets. Both sides of every derived difference must be available. No undocumented
+vintages, future filling or automatic zero interpretation of sparse aFRR. Do not require
+every optional group to be implemented or tested; record untested hypotheses honestly.
+Avoid a Cartesian target-by-feature search.
+
+Compare target modes on complete horizons and the same origin-available delivery-spot
+subset, using identical matched scoring rows per metric to expose missing-spot bias.
+Record independent per-head training eligibility/counts rather than intersecting all
+task masks. Report all four losses, coverage, availability, fallback rates, per-horizon
+results and fit/inference/attribution costs against fresh persistence and direct/relative
+ML controls run on the same folds. Keep numerical explanation data private.
+
+**Expected files:** Engine-local experiment recipe/report helpers if needed,
+`experiments/{run.py,README.md}`, relevant `features/` definitions/builders and their
+package-local tests. Modify `models/lightgbm.py` or private attribution helpers only
+where the selected feature comparisons require it. Reuse existing target and native
+head implementations; no framework or dependency change is expected.
+
+**Verify:** Run controlled fold comparisons with fixed seeds, source fingerprints,
+fitting boundaries and matched scoring rows. Test availability and transitive evidence
+for added features, label purging, missingness, fallback and hypothesis-specific
+unavailable-input invariance. Run focused feature/experiment/prediction regressions
+and attribution identities where affected. Use the existing official scorer for
+metrics; do not turn this substep into a full repository test run or final test export.
+
+**After this substep / deliverables:** A reproducible target/feature comparison table,
+documented discarded/untested hypotheses and a provisional feature/target choice for
+4B, or evidence for retaining the original recipe. Record budget slots used/remaining
+and the diagnostics that could justify later refinements.
+
+**Acceptance criteria:** All comparisons obey chronological availability and label
+boundaries; all four losses, coverage, matched counts and costs are visible. Any
+provisional choice follows the predeclared rule and reports fold consistency and
+tradeoffs. Forecast/driver semantics and existing integration remain valid. No model
+activation, calibration or superiority claim unsupported by measurements.
+
+**Anticipated cross-boundary changes:** None required with approved dependencies.
+External data, another library, shared tooling or public fields require the standing
+notice and separate approval. Application code remains untouched.
+
+### Step 4B. Refine and select a configuration
+
+**Objective and implementation:** Use 4A evidence and the remaining shared recipe slots
+for a few promising regularization/tree/iteration refinements. Fix the provisional
+feature/target choice while isolating each refinement's hypothesis. Add head-specific
+feature sets, horizon interactions or horizon groups only when pooled diagnostics
+show a repeatable weakness that justifies the work. Predeclare each new recipe and
+its retention rule before inspecting its results; no automatic or Cartesian search.
 
 Small same-family ensembles or regime-specific heads are optional follow-ups only
 when earlier results justify their extra cost. A regime selector itself must be
@@ -737,26 +795,38 @@ speculatively build another architecture or require these options for completion
 
 **Expected files:** Modify `models/{lightgbm,heads,targets}.py`, `features/` definitions,
 package-local experiment recipes/guide and associated internal tests. Extend private
-attribution handling for retained changes only. No new framework is expected.
+attribution handling for retained changes only. Reuse 4A reporting and fold infrastructure;
+no new framework or second experiment system is expected.
 
-**Verify:** Run controlled fold comparisons with fixed seeds, data and matched score
-rows. Test label purging, per-head subsets, missingness, fallback and hypothesis-specific
-invariance. Run focused tests and affected consumer regressions after retained code
-changes, plus attribution identities for the selected mode. Apply the predeclared
-promotion rule; report discarded ideas as well as retained improvements in safe
-experiment summaries.
+**Verify:** Compare refinements with the 4A choice and persistence on the same folds,
+fixed seeds, data and matched rows. Report all four losses, coverage, availability,
+fallback rates, horizon diagnostics and compute/attribution costs. Test label purging,
+per-head subsets and any retained selector/blend, missingness and unavailable-input
+invariance. Run focused tests and affected consumer regressions for retained code,
+including explanation identities and safe P50 driver scope. Apply the predeclared
+promotion rule; report discarded recipes and total budget use. A substep may finish
+without a new retained refinement if the evidence does not justify one.
 
-**After this step / deliverables:** A measured configuration/feature comparison and
-selected candidate within the permanent LightGBM architecture, or evidence for retaining
-the initial recipe/persistence. No unsupported superiority claim.
+**After this substep / deliverables:** One selected uncalibrated configuration within
+the permanent LightGBM architecture, with its exact recipe, features, target mode and
+fold evidence, or a documented decision to retain the initial recipe/persistence.
+Record the complete 4A/4B comparison and all metric/cost tradeoffs for Step 5.
 
 **Acceptance criteria:** Every retained change has reproducible chronological evidence
-and valid provenance/outputs. All four metrics/tradeoffs are visible. Test outcomes
-are not accessed; forecast explanations retain correct head and transformation scope.
+and valid provenance/outputs, stays within the shared budget and satisfies the
+predeclared promotion/tradeoff rules. All four metrics and fold consistency are visible;
+test outcomes are not accessed. Forecast explanations retain correct head and
+transformation scope, and existing integration remains compatible. Selection does not
+automatically activate a model in the application. Calibration and the frozen full
+official-validation comparison remain Step 5.
 
 **Anticipated cross-boundary changes:** None required with approved dependencies.
 External data, another library, broader experiments or public fields require a notice
 and separate approval. Application code remains untouched.
+
+Step 4 is complete only when both substeps are accepted. Each reports the standing
+integration and cross-boundary statuses and stops for review and explicit authorization.
+Neither substep includes Step 5 calibration or Step 6 final-test generation.
 
 ## Step 5. Calibrate and freeze the final complete configuration
 
