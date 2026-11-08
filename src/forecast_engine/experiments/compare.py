@@ -1,4 +1,4 @@
-"""Preregister and compare Step 4A folds. Never train or select on test outcomes.
+"""Preregister, execute and compare controlled folds without test outcomes.
 
 All CSVs written here are private diagnostics, not complete submission artifacts.
 Losses come from unchanged score.py; only deltas/retention rules are computed here.
@@ -9,11 +9,13 @@ from datetime import datetime, timezone
 import hashlib
 import json
 from pathlib import Path
+import subprocess
+import sys
 
 from .. import evaluation
 from ..config import RunConfig
 from ..features.training import expanding_window_folds
-from .recipes import RECIPES, RETENTION, UNTESTED
+from .recipes import RECIPES, REFINEMENTS, RETENTION, UNTESTED
 from .run import COUNTS, METRICS, _read_scores
 
 
@@ -21,12 +23,57 @@ def _write(path, value):
     path.write_text(json.dumps(value, indent=2, allow_nan=False) + "\n", encoding="utf-8")
 
 
-def write_plan(*, starter_dir, data_dir, output_dir):
+def _recipes(plan):
+    if plan.get("scope") == "Step 4B only":
+        return {"relative-control-v1": RECIPES["relative-control-v1"], **REFINEMENTS}
+    if plan.get("scope") != "Step 4A only":
+        raise ValueError("unknown study scope")
+    return RECIPES
+
+
+def _prior_evidence(root):
+    root = Path(root).resolve()
+    plan_path = root / "study_plan.json"
+    plan = json.loads(plan_path.read_text())
+    report_path = root / "comparison" / "comparison.json"
+    report = json.loads(report_path.read_text())
+    expected = [{"recipe_id": r.recipe_id, "target_mode": r.target_mode,
+                 "features": list(r.features), "hypothesis": r.hypothesis} for r in RECIPES.values()]
+    if (plan["scope"] != "Step 4A only"
+            or evaluation._sha256(plan_path) != (root / "study_plan.sha256").read_text().strip()
+            or report["plan_sha256"] != evaluation._sha256(plan_path)
+            or plan["allocated_4a"] != 4 or plan["reserved_4b"] != 2
+            or report["recipes_used"] != 4 or report["recipes_reserved_4b"] != 2
+            or plan["recipes"] != expected or plan["retention"] != dict(RETENTION)
+            or report["selection"] != _selection(report["results"])
+            or report["selection"]["selected_recipe"] != "relative-control-v1"):
+        raise ValueError("4B requires verified 4A relative-control evidence")
+    for identity in ("persistence-v1", *RECIPES):
+        result = report["results"][identity]
+        for fold in plan["folds"]:
+            manifest = _checked_manifest(root, fold, identity, plan)
+            if result["losses"][fold["fold"]] != manifest["metrics"]:
+                raise ValueError("4A recorded fold evidence changed")
+        for evidence in result["pooled_evidence"].values():
+            for name in ("forecasts", "actuals", "score"):
+                record = evidence[name]
+                if evaluation._sha256(record["path"]) != record["sha256"]:
+                    raise ValueError("4A pooled artifact changed")
+            if any(command["exit_code"] != 0 for command in evidence["commands"]):
+                raise ValueError("4A pooled scoring failed")
+        if result["losses"]["pooled"] != _read_scores(result["pooled_evidence"]["pooled"]["score"]["path"]):
+            raise ValueError("4A pooled losses changed")
+    return {"plan": evaluation._file_record(plan_path), "report": evaluation._file_record(report_path)}, plan
+
+
+def write_plan(*, starter_dir, data_dir, output_dir, stage="4a", previous_study=None):
     from ..models.heads import TreeRecipe
 
     starter, data, output = (Path(p).resolve() for p in (starter_dir, data_dir, output_dir))
     if output.exists() and (not output.is_dir() or any(output.iterdir())):
         raise ValueError("plan requires a fresh directory")
+    if stage not in ("4a", "4b"):
+        raise ValueError("unknown study stage")
     plan = {
         "scope": "Step 4A only", "planned_utc": datetime.now(timezone.utc).isoformat(),
         "learned_recipe_budget": 6, "allocated_4a": 4, "reserved_4b": 2,
@@ -48,6 +95,26 @@ def write_plan(*, starter_dir, data_dir, output_dir):
         "cost_policy": "Predict includes attribution and cProfile overhead. Feature-count diagnostics are separately timed. Overlapping local jobs are not controlled runtime benchmarks.",
         "pooled_policy": "Exclude each fold's out-of-assessment delivery tail before pooling, so later-fold labels cannot relabel an earlier fold's unscored tail. Original complete horizons remain unchanged.",
     }
+    if stage == "4b":
+        if previous_study is None:
+            raise ValueError("4B requires the completed 4A study")
+        lineage, prior = _prior_evidence(previous_study)
+        if plan["folds"] != prior["folds"] or plan["sources"] != prior["sources"]:
+            raise ValueError("4B must retain 4A data, tools and folds")
+        core = lambda sources: {name: digest for name, digest in sources.items()
+                                if not name.startswith(("experiments/", "tests/"))}
+        if core(prior["package_sources_sha256"]) != core(plan["package_sources_sha256"]):
+            raise ValueError("4B requires unchanged model, feature and attribution sources")
+        plan.update(scope="Step 4B only", allocated_4b=2, reserved_4b=0,
+                    previous_study=lineage, retention_reference="relative-control-v1",
+                    comparison_policy="Refinements must pass the same gate versus the relative control and persistence; rank eligible recipes including the retained control by pooled losses. No automatic activation.",
+                    runner_policy="Sequential subprocesses; resume only verified complete runs. No retries or overwrites of incomplete runs.")
+        plan["recipes"] = [{"recipe_id": r.recipe_id, "target_mode": r.target_mode,
+                            "features": r.features, "hypothesis": r.hypothesis,
+                            "parameters": r.tree.parameters(), "num_boost_round": r.tree.num_boost_round}
+                           for r in _recipes(plan).values()]
+        plan["untested_hypotheses"] = [*UNTESTED[:2],
+            "Head-specific subsets, horizon grouping, other tree settings, ensembles and regimes.", UNTESTED[-1]]
     output.mkdir(parents=True, exist_ok=True)
     _write(output / "study_plan.json", plan)
     (output / "study_plan.sha256").write_text(evaluation._sha256(output / "study_plan.json") + "\n")
@@ -97,14 +164,14 @@ def _checked_manifest(root, fold, identity, plan):
         if configuration["kind"] != "persistence":
             raise ValueError("baseline kind mismatch")
     else:
-        recipe = RECIPES[identity]
+        recipe = _recipes(plan)[identity]
         if (configuration["kind"] != "lightgbm" or configuration["target_mode"] != recipe.target_mode
                 or len(configuration["heads"]) != (5 if recipe.target_mode == "direct" else 8)
                 or configuration["min_training_rows"] != 40):
             raise ValueError("recipe mismatch")
         for head in configuration["heads"]:
-            if (head["features"] != list(recipe.features) or head["num_boost_round"] != plan["num_boost_round"]
-                    or any(head["parameters"].get(k) != v for k, v in plan["parameters"].items())):
+            if (head["features"] != list(recipe.features) or head["num_boost_round"] != recipe.tree.num_boost_round
+                    or any(head["parameters"].get(k) != v for k, v in recipe.tree.parameters().items())):
                 raise ValueError("recipe parameters mismatch")
     return manifest
 
@@ -153,10 +220,22 @@ def _selection(results):
             "selected_control": control, "decisions": decisions, "automatic_activation": False}
 
 
-def build_report(*, output_dir):
-    import pandas as pd
+def _selection_4b(results):
+    baseline, control = "persistence-v1", "relative-control-v1"
+    eligible = [control] if _passes(results[control]["losses"], results[baseline]["losses"]) else []
+    decisions = {}
+    for name in REFINEMENTS:
+        references = [baseline, control]
+        passed = all(_passes(results[name]["losses"], results[ref]["losses"]) for ref in references)
+        decisions[name] = {"passes": passed, "references": references}
+        if passed:
+            eligible.append(name)
+    key = lambda name: (*[results[name]["losses"]["pooled"][m] for m in METRICS], name)
+    return {"selected_recipe": min(eligible, key=key) if eligible else baseline,
+            "selected_control": control, "decisions": decisions, "automatic_activation": False}
 
-    root = Path(output_dir).resolve()
+
+def _validated_plan(root):
     plan_path = root / "study_plan.json"
     plan = json.loads(plan_path.read_text())
     if evaluation._sha256(plan_path) != (root / "study_plan.sha256").read_text().strip():
@@ -167,11 +246,32 @@ def build_report(*, output_dir):
         if evaluation._sha256(source["path"]) != source["sha256"]:
             raise ValueError("study inputs/tools changed")
     expected = [{"recipe_id": r.recipe_id, "target_mode": r.target_mode,
-                 "features": list(r.features), "hypothesis": r.hypothesis} for r in RECIPES.values()]
+                 "features": list(r.features), "hypothesis": r.hypothesis} for r in _recipes(plan).values()]
+    if plan["scope"] == "Step 4B only":
+        for record, recipe in zip(expected, _recipes(plan).values()):
+            record.update(parameters=recipe.tree.parameters(), num_boost_round=recipe.tree.num_boost_round)
+        if plan.get("allocated_4b") != 2 or plan.get("retention_reference") != "relative-control-v1":
+            raise ValueError("4B registration mismatch")
+        for record in plan["previous_study"].values():
+            if evaluation._sha256(record["path"]) != record["sha256"]:
+                raise ValueError("4A lineage changed")
+        lineage, _ = _prior_evidence(Path(plan["previous_study"]["plan"]["path"]).parent)
+        if lineage != plan["previous_study"]:
+            raise ValueError("4A lineage mismatch")
+    reserved = 0 if plan["scope"] == "Step 4B only" else 2
     if (plan["recipes"] != expected or plan["retention"] != dict(RETENTION)
-            or (plan["learned_recipe_budget"], plan["allocated_4a"], plan["reserved_4b"]) != (6, 4, 2)):
+            or (plan["learned_recipe_budget"], plan["allocated_4a"], plan["reserved_4b"]) != (6, 4, reserved)):
         raise ValueError("study registration mismatch")
-    identities = ["persistence-v1", *RECIPES]
+    return plan
+
+
+def build_report(*, output_dir):
+    import pandas as pd
+
+    root = Path(output_dir).resolve()
+    plan = _validated_plan(root)
+    plan_path = root / "study_plan.json"
+    identities = ["persistence-v1", *_recipes(plan)]
     manifests = {name: [_checked_manifest(root, fold, name, plan) for fold in plan["folds"]] for name in identities}
     for index, fold in enumerate(plan["folds"]):
         baseline = manifests["persistence-v1"][index]
@@ -254,37 +354,75 @@ def build_report(*, output_dir):
                     raise ValueError("shared pooling changed matched outcomes")
                 result["shared_spot"][scope] = {"metrics": metrics}
         results[name] = result
-    report = {"scope": "Step 4A pre-validation comparison", "plan_sha256": evaluation._sha256(plan_path),
-              "recipes_used": 4, "recipes_reserved_4b": 2, "results": results,
-              "selection": _selection(results), "untested_hypotheses": plan["untested_hypotheses"],
+    refinement = plan["scope"] == "Step 4B only"
+    report = {"scope": "Step 4B pre-validation comparison" if refinement else "Step 4A pre-validation comparison", "plan_sha256": evaluation._sha256(plan_path),
+              "recipes_used": 6 if refinement else 4, "recipes_reserved_4b": 0 if refinement else 2, "results": results,
+              "selection": _selection_4b(results) if refinement else _selection(results), "untested_hypotheses": plan["untested_hypotheses"],
               "prior_validation_reuse": plan["prior_validation_reuse"], "cost_policy": plan["cost_policy"],
               "pooled_policy": plan["pooled_policy"]}
+    if refinement:
+        report["previous_study"] = plan["previous_study"]
+        report["selected_configuration"] = next((r for r in plan["recipes"]
+            if r["recipe_id"] == report["selection"]["selected_recipe"]), {"recipe_id": "persistence-v1"})
     _write(analysis / "comparison.json", report)
-    lines = ["# Step 4A fold comparison", "", "| Recipe | Pooled MAE | Pinball | Spike Brier | Direction Brier | Coverage |", "|---|---:|---:|---:|---:|---:|"]
+    lines = ["# " + report["scope"], "", "| Recipe | Pooled MAE | Pinball | Spike Brier | Direction Brier | Coverage |", "|---|---:|---:|---:|---:|---:|"]
     for name, result in results.items():
         metrics = result["losses"]["pooled"]
         lines.append("| " + name + " | " + " | ".join("unavailable" if metrics[k] is None else f"{metrics[k]:.6f}"
                      for k in (*METRICS, "coverage_p10_p90")) + " |")
     lines += ["", "Provisional choice: `" + report["selection"]["selected_recipe"] + "`. No application activation.",
-              "", "Four of six learned recipe slots used; two reserved for 4B. All fold losses, matched counts, source availability, backup usage, horizon diagnostics and costs are in comparison.json.",
+              "", ("Six of six learned recipe slots used; no slots remain." if refinement else "Four of six learned recipe slots used; two reserved for 4B.") + " All fold losses, matched counts, source availability, backup usage, horizon diagnostics and costs are in comparison.json.",
               "", plan["pooled_policy"], "", plan["cost_policy"], "", plan["prior_validation_reuse"],
               "", "No calibration, official-validation selection, test-outcome access or final submission generation. Windows and full-data deployment performance remain unverified."]
     (analysis / "comparison.md").write_text("\n".join(lines) + "\n")
     return report
 
 
+def execute_study(*, output_dir):
+    root = Path(output_dir).resolve()
+    plan = _validated_plan(root)
+    if (root / "comparison" / "comparison.json").exists():
+        raise ValueError("study already reported; inspect existing results")
+    for fold in plan["folds"]:
+        for identity in ("persistence-v1", *_recipes(plan)):
+            _validated_plan(root)
+            directory = root / fold["fold"] / identity
+            if directory.exists():
+                _checked_manifest(root, fold, identity, plan)
+                print(f"Verified completed run: {fold['fold']} / {identity}", flush=True)
+                continue
+            command = [sys.executable, "-W", "error::FutureWarning", "-m", "forecast_engine.experiments.run",
+                       "--starter-dir", str(Path(plan["sources"]["scorer"]["path"]).parent),
+                       "--data-dir", str(Path(plan["sources"]["inputs"]["path"]).parent),
+                       "--period", fold["fold"], "--measure-attribution", "--output-dir", str(directory)]
+            command += ["--model", "persistence"] if identity == "persistence-v1" else ["--recipe", identity]
+            print(f"Starting: {fold['fold']} / {identity}", flush=True)
+            with (root / f"{fold['fold']}-{identity}.log").open("x") as log:
+                completed = subprocess.run(command, stdout=log, stderr=subprocess.STDOUT, check=False)
+            if completed.returncode:
+                raise ValueError("study run failed; inspect private log; no automatic retry")
+            _checked_manifest(root, fold, identity, plan)
+            print(f"Completed: {fold['fold']} / {identity}", flush=True)
+    return build_report(output_dir=root)
+
+
 def main(argv=None):
     from .run import _Parser
 
-    parser = _Parser(description="Private Step 4A preregistration and matched fold comparison.")
-    parser.add_argument("action", choices=("plan", "report"))
+    parser = _Parser(description="Private Step 4A/4B preregistration, terminal execution and matched fold comparison.")
+    parser.add_argument("action", choices=("plan", "report", "execute"))
+    parser.add_argument("--stage", choices=("4a", "4b"), default="4a")
+    parser.add_argument("--previous-study", type=Path)
     parser.add_argument("--starter-dir", type=Path, default=Path("."))
     parser.add_argument("--data-dir", type=Path, default=Path("data"))
     parser.add_argument("--output-dir", type=Path, required=True)
     options = parser.parse_args(argv)
     try:
         if options.action == "plan":
-            write_plan(starter_dir=options.starter_dir, data_dir=options.data_dir, output_dir=options.output_dir)
+            write_plan(starter_dir=options.starter_dir, data_dir=options.data_dir, output_dir=options.output_dir,
+                       stage=options.stage, previous_study=options.previous_study)
+        elif options.action == "execute":
+            execute_study(output_dir=options.output_dir)
         else:
             build_report(output_dir=options.output_dir)
     except Exception as error:

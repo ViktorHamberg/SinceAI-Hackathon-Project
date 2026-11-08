@@ -23,6 +23,7 @@ class ForecastConfig:
     inputs_path: Path = field(repr=False)
     spot_path: Path = field(repr=False)
     origins: tuple[datetime, ...] = DEFAULT_ORIGINS
+    model_cache_path: Path | None = field(default=None, repr=False)
 
     def __post_init__(self) -> None:
         for name in ("inputs_path", "spot_path"):
@@ -32,6 +33,12 @@ class ForecastConfig:
             object.__setattr__(self, name, path)
         if self.inputs_path == self.spot_path:
             raise ValueError("Input series and spot data require separate files.")
+        if self.model_cache_path is not None:
+            cache = Path(self.model_cache_path).expanduser().resolve()
+            if (cache in (self.inputs_path, self.spot_path) or cache.suffix.lower() != ".json"
+                    or cache.stem.lower().startswith("actuals")):
+                raise ValueError("Model cache requires a separate JSON file, never source data.")
+            object.__setattr__(self, "model_cache_path", cache)
         if not isinstance(self.origins, tuple) or not 1 <= len(self.origins) <= MAX_CACHED_ORIGINS:
             raise ValueError("Configure between one and six forecast origins.")
         normalized = []
@@ -51,7 +58,8 @@ class ForecastConfig:
     def from_data_dir(cls, data_dir: str | Path | None = None) -> "ForecastConfig":
         directory = (Path(data_dir) if data_dir is not None
                      else Path(__file__).resolve().parents[2] / "data")
-        return cls(directory / "inputs.csv", directory / "spot_nordpool.csv")
+        cache = Path(__file__).resolve().parents[2] / "baseline_output" / "application" / "models" / "relative-control-v1.json"
+        return cls(directory / "inputs.csv", directory / "spot_nordpool.csv", model_cache_path=cache)
 
 
 @dataclass(frozen=True, slots=True)

@@ -162,6 +162,17 @@ above explicitly selects Persistence; engine CLI defaults remain unchanged.
 Optional disk export is `export_forecasts(frame, path, origins=origins)` from
 `forecast_engine`. Official validation/scoring remain workflow responsibilities.
 
+Private LightGBM fitted state can be saved and loaded with
+`forecast_engine.models.artifacts.save_fitted_model(path, fitted, identity=...)` and
+`load_fitted_model(path, identity=...)`. The versioned JSON contains native model
+strings, recipe and full fitting lineage, including direct backup heads. It is private
+learned state, not a submission or public artifact. Keep it in ignored storage. The
+caller supplies source/runtime/configuration identity, which must match on load;
+model integrity and fitting availability are also checked. No pickle or arbitrary
+type imports are used. This preserves the existing `fit`/`predict`/`forecast` contract.
+The backend now uses this for its default model; see
+[saved-model setup](../backend/README.md#saved-model-and-repeat-startup).
+
 ## Focused verification
 
 Step 5 tests use synthetic fitting data and small fixtures. A two-origin validation

@@ -1,9 +1,10 @@
-"""Four predeclared Step 4A recipes; two of six learned slots remain for 4B."""
+"""Four Step 4A recipes and two bounded Step 4B refinements."""
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from types import MappingProxyType
 
 from ..features.registry import DEFAULT_FEATURE_NAMES, FEATURE_REGISTRY
+from ..models.heads import TreeRecipe
 
 
 @dataclass(frozen=True)
@@ -12,11 +13,12 @@ class CandidateRecipe:
     target_mode: str
     features: tuple[str, ...]
     hypothesis: str
+    tree: TreeRecipe = field(default_factory=TreeRecipe)
 
     def predictor(self):
         from ..models.lightgbm import LightGBMPredictor
 
-        return LightGBMPredictor(target_mode=self.target_mode, feature_names=self.features)
+        return LightGBMPredictor(target_mode=self.target_mode, feature_names=self.features, recipe=self.tree)
 
 
 def _features(*extra):
@@ -39,6 +41,16 @@ RECIPES = MappingProxyType({r.recipe_id: r for r in (
                                 for kind in ("price", "activated") for suffix in ("latest", "age_minutes"))),
                     "Available mFRR price/activation observations and age improve the relative control."),
 )})
+
+REFINEMENTS = MappingProxyType({r.recipe_id: r for r in (
+    CandidateRecipe("relative-rounds60-v1", "spot_relative", _features(),
+                    "Doubling rounds from 30 to 60 tests whether the minimal relative model underfits.",
+                    TreeRecipe(num_boost_round=60)),
+    CandidateRecipe("relative-l2-10-v1", "spot_relative", _features(),
+                    "Increasing L2 from 1 to 10 tests whether stronger shrinkage improves fold consistency.",
+                    TreeRecipe(l2_regularization=10.)),
+)})
+ALL_RECIPES = MappingProxyType({**RECIPES, **REFINEMENTS})
 
 RETENTION = MappingProxyType({
     "minimum_relative_improvement": .01,
